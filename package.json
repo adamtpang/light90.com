@@ -2,7 +2,6 @@
   "name": "light90",
   "version": "0.1.0",
   "private": true,
-  "proxy": "https://api-7.whoop.com",
   "dependencies": {
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",
@@ -16,8 +15,6 @@
     "@types/react": "^18.2.39",
     "@types/react-dom": "^18.2.17",
     "date-fns": "^2.30.0",
-    "mongoose": "^7.6.8",
-    "next": "^13.5.6",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1",
@@ -26,7 +23,6 @@
     "web-vitals": "^2.1.4"
   },
   "devDependencies": {
-    "@types/mongoose": "^5.11.97",
     "@types/suncalc": "^1.9.2"
   },
   "scripts": {
