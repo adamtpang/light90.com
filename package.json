@@ -18,7 +18,8 @@
     "@types/node": "^16.18.66",
     "@types/react": "^18.2.39",
     "@types/react-dom": "^18.2.17",
-    "@types/suncalc": "^1.9.2"
+    "@types/suncalc": "^1.9.2",
+    "sharp": "^0.33.5"
   },
   "scripts": {
     "start": "react-scripts start",
