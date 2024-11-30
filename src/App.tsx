@@ -10,7 +10,12 @@ import {
   CssBaseline,
   Card,
   CardContent,
-  useMediaQuery
+  useMediaQuery,
+  TextField,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from '@mui/material';
 import BedtimeIcon from '@mui/icons-material/Bedtime';
 import LogoutIcon from '@mui/icons-material/ExitToApp';
@@ -48,6 +53,11 @@ interface LightExposure {
   duration: number;
 }
 
+interface LoginCredentials {
+  email: string;
+  password: string;
+}
+
 const App: React.FC = () => {
   const [whoopAccessToken, setWhoopAccessToken] = useState<string | null>(localStorage.getItem('whoopAccessToken'));
   const [sleepData, setSleepData] = useState<SleepData | null>(null);
@@ -56,6 +66,8 @@ const App: React.FC = () => {
   const [sunTimes, setSunTimes] = useState<any>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [credentials, setCredentials] = useState<LoginCredentials>({ email: '', password: '' });
   const isMobile = useMediaQuery('(max-width:600px)');
 
   useEffect(() => {
@@ -82,12 +94,34 @@ const App: React.FC = () => {
     }
   }, [location]);
 
-  const handleWhoopLogin = () => {
-    const clientId = 'your-whoop-client-id';
-    const redirectUri = encodeURIComponent(window.location.origin);
-    const scope = encodeURIComponent('offline read:recovery read:sleep read:workout');
+  const handleWhoopLogin = async () => {
+    try {
+      const response = await fetch('https://api-7.whoop.com/oauth/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          grant_type: 'password',
+          username: credentials.email,
+          password: credentials.password,
+        }),
+      });
 
-    window.location.href = `https://api-7.whoop.com/oauth/oauth2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}`;
+      if (!response.ok) {
+        throw new Error('Login failed');
+      }
+
+      const data = await response.json();
+      const token = data.access_token;
+      localStorage.setItem('whoopAccessToken', token);
+      setWhoopAccessToken(token);
+      setLoginOpen(false);
+      fetchSleepData();
+    } catch (error) {
+      console.error('Login error:', error);
+      setError('Login failed. Please check your credentials.');
+    }
   };
 
   const handleLogout = () => {
@@ -192,7 +226,7 @@ const App: React.FC = () => {
                 <Button
                   variant="contained"
                   color="primary"
-                  onClick={handleWhoopLogin}
+                  onClick={() => setLoginOpen(true)}
                   startIcon={<WbSunnyIcon />}
                 >
                   Connect WHOOP
@@ -289,6 +323,34 @@ const App: React.FC = () => {
             </>
           )}
         </Box>
+
+        <Dialog open={loginOpen} onClose={() => setLoginOpen(false)}>
+          <DialogTitle>Connect your WHOOP</DialogTitle>
+          <DialogContent>
+            <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <TextField
+                label="Email"
+                type="email"
+                fullWidth
+                value={credentials.email}
+                onChange={(e) => setCredentials(prev => ({ ...prev, email: e.target.value }))}
+              />
+              <TextField
+                label="Password"
+                type="password"
+                fullWidth
+                value={credentials.password}
+                onChange={(e) => setCredentials(prev => ({ ...prev, password: e.target.value }))}
+              />
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setLoginOpen(false)}>Cancel</Button>
+            <Button onClick={handleWhoopLogin} variant="contained" color="primary">
+              Connect
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Container>
     </ThemeProvider>
   );
