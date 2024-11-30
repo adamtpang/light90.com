@@ -17,7 +17,7 @@ import LogoutIcon from '@mui/icons-material/ExitToApp';
 import SettingsIcon from '@mui/icons-material/Settings';
 import WbSunnyIcon from '@mui/icons-material/WbSunny';
 import CoffeeIcon from '@mui/icons-material/Coffee';
-import { format, addMinutes, differenceInMinutes } from 'date-fns';
+import { format, addMinutes } from 'date-fns';
 import { getTimes } from 'suncalc';
 import './App.css';
 
@@ -48,7 +48,7 @@ interface LightExposure {
   duration: number;
 }
 
-function App() {
+const App: React.FC = () => {
   const [whoopAccessToken, setWhoopAccessToken] = useState<string | null>(localStorage.getItem('whoopAccessToken'));
   const [sleepData, setSleepData] = useState<SleepData | null>(null);
   const [lightExposure, setLightExposure] = useState<LightExposure | null>(null);
@@ -112,7 +112,6 @@ function App() {
       }
 
       const data = await response.json();
-      // Process the most recent sleep data
       if (data.records && data.records.length > 0) {
         const latestSleep = data.records[0];
         setSleepData({
@@ -134,11 +133,9 @@ function App() {
     const sunrise = new Date(sunTimes.sunrise);
     const sunset = new Date(sunTimes.sunset);
 
-    // Recommend morning sunlight within 2 hours of waking
     const morningStart = wakeTime;
     const morningEnd = addMinutes(wakeTime, 120);
 
-    // Afternoon sunlight 4-6 hours before bedtime
     const nextBedtime = new Date(sleepData.startTime);
     nextBedtime.setDate(nextBedtime.getDate() + 1);
     const afternoonStart = addMinutes(nextBedtime, -360);
@@ -227,7 +224,7 @@ function App() {
                 </Paper>
               )}
 
-              {optimalTimes && optimalCoffee && (
+              {optimalTimes && optimalCoffee && sleepData && (
                 <>
                   <Card>
                     <CardContent>
@@ -295,6 +292,6 @@ function App() {
       </Container>
     </ThemeProvider>
   );
-}
+};
 
 export default App;
