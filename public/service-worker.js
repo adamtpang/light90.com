@@ -12,6 +12,11 @@ const urlsToCache = [
 
 // Cache first, then network
 self.addEventListener('fetch', (event) => {
+  // Only handle HTTP(S) requests
+  if (!event.request.url.startsWith('http')) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
@@ -30,13 +35,16 @@ self.addEventListener('fetch', (event) => {
               return response;
             }
 
-            // Clone the response because it's a one-time use stream
-            const responseToCache = response.clone();
+            // Only cache HTTP(S) responses
+            if (response.url.startsWith('http')) {
+              // Clone the response because it's a one-time use stream
+              const responseToCache = response.clone();
 
-            caches.open(CACHE_NAME)
-              .then((cache) => {
-                cache.put(event.request, responseToCache);
-              });
+              caches.open(CACHE_NAME)
+                .then((cache) => {
+                  cache.put(event.request, responseToCache);
+                });
+            }
 
             return response;
           }

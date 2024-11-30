@@ -15,14 +15,23 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  Stepper,
+  Step,
+  StepLabel,
+  StepContent,
+  IconButton,
+  Tooltip
 } from '@mui/material';
 import BedtimeIcon from '@mui/icons-material/Bedtime';
 import LogoutIcon from '@mui/icons-material/ExitToApp';
 import SettingsIcon from '@mui/icons-material/Settings';
 import WbSunnyIcon from '@mui/icons-material/WbSunny';
 import CoffeeIcon from '@mui/icons-material/Coffee';
-import { format, addMinutes } from 'date-fns';
+import NotificationsIcon from '@mui/icons-material/Notifications';
+import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
+import LaptopIcon from '@mui/icons-material/Laptop';
+import { format, addMinutes, differenceInMinutes } from 'date-fns';
 import { getTimes } from 'suncalc';
 import './App.css';
 
@@ -67,8 +76,30 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [credentials, setCredentials] = useState<LoginCredentials>({ email: '', password: '' });
+  const [countdowns, setCountdowns] = useState<{
+    sunlight: number | null;
+    coffee: number | null;
+  }>({ sunlight: null, coffee: null });
   const isMobile = useMediaQuery('(max-width:600px)');
+
+  // Handle PWA install prompt
+  useEffect(() => {
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    });
+  }, []);
+
+  // Handle notifications permission
+  useEffect(() => {
+    if ('Notification' in window) {
+      setNotificationsEnabled(Notification.permission === 'granted');
+    }
+  }, []);
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -93,6 +124,26 @@ const App: React.FC = () => {
       setSunTimes(times);
     }
   }, [location]);
+
+  // Update countdowns every minute
+  useEffect(() => {
+    if (sleepData && sunTimes) {
+      const interval = setInterval(() => {
+        const now = new Date();
+        const optimalTimes = calculateOptimalSunlight();
+        const optimalCoffee = calculateOptimalCoffee();
+
+        if (optimalTimes && optimalCoffee) {
+          setCountdowns({
+            sunlight: differenceInMinutes(optimalTimes.morning.start, now),
+            coffee: differenceInMinutes(optimalCoffee.start, now)
+          });
+        }
+      }, 60000);
+
+      return () => clearInterval(interval);
+    }
+  }, [sleepData, sunTimes]);
 
   const handleWhoopLogin = async () => {
     try {
@@ -131,6 +182,54 @@ const App: React.FC = () => {
     setLightExposure(null);
   };
 
+  const requestNotificationPermission = async () => {
+    if ('Notification' in window) {
+      const permission = await Notification.requestPermission();
+      setNotificationsEnabled(permission === 'granted');
+      if (permission === 'granted') {
+        scheduleNotifications();
+      }
+    }
+  };
+
+  const scheduleNotifications = () => {
+    if (!sleepData) return;
+
+    const optimalTimes = calculateOptimalSunlight();
+    const optimalCoffee = calculateOptimalCoffee();
+
+    if (optimalTimes && optimalCoffee) {
+      const now = new Date();
+      const sunlightTime = optimalTimes.morning.start;
+      const coffeeTime = optimalCoffee.start;
+
+      if (sunlightTime > now) {
+        setTimeout(() => {
+          new Notification('Time for Morning Sunlight! ☀️', {
+            body: 'Get 10-30 minutes of sunlight for optimal energy',
+            icon: '/logo192.svg'
+          });
+        }, sunlightTime.getTime() - now.getTime());
+      }
+
+      if (coffeeTime > now) {
+        setTimeout(() => {
+          new Notification('Optimal Coffee Time! ☕', {
+            body: 'It\'s the perfect time for your first cup of coffee',
+            icon: '/logo192.svg'
+          });
+        }, coffeeTime.getTime() - now.getTime());
+      }
+    }
+  };
+
+  const handleInstallClick = async () => {
+    if (installPrompt) {
+      await installPrompt.prompt();
+      setInstallPrompt(null);
+    }
+  };
+
   const fetchSleepData = async () => {
     if (!whoopAccessToken) return;
 
@@ -153,6 +252,7 @@ const App: React.FC = () => {
           endTime: latestSleep.end,
           qualityScore: latestSleep.score
         });
+        scheduleNotifications();
       }
     } catch (error) {
       console.error('Error fetching sleep data:', error);
@@ -206,6 +306,14 @@ const App: React.FC = () => {
     return format(time, 'h:mm a');
   };
 
+  const renderCountdown = (minutes: number | null) => {
+    if (minutes === null) return '';
+    if (minutes < 0) return 'Now!';
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+  };
+
   const optimalTimes = calculateOptimalSunlight();
   const optimalCoffee = calculateOptimalCoffee();
 
@@ -214,44 +322,86 @@ const App: React.FC = () => {
       <CssBaseline />
       <Container maxWidth="sm" className="App">
         <Box sx={{ my: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <Card>
+            <CardContent>
+              <Typography variant="h5" gutterBottom>
+                Welcome to Light90
+              </Typography>
+              <Typography variant="body1" paragraph>
+                Optimize your sunlight exposure and coffee timing for better energy and sleep.
+              </Typography>
+              {!whoopAccessToken ? (
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={() => setLoginOpen(true)}
+                    startIcon={<WbSunnyIcon />}
+                  >
+                    Connect WHOOP
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    onClick={() => setHowItWorksOpen(true)}
+                  >
+                    How It Works
+                  </Button>
+                </Box>
+              ) : (
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+                  <Tooltip title={notificationsEnabled ? 'Notifications enabled' : 'Enable notifications'}>
+                    <IconButton
+                      size="small"
+                      onClick={requestNotificationPermission}
+                      color={notificationsEnabled ? 'primary' : 'default'}
+                    >
+                      <NotificationsIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Button
+                    size="small"
+                    onClick={() => setShowSettings(!showSettings)}
+                    startIcon={<SettingsIcon />}
+                  >
+                    Settings
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={handleLogout}
+                    startIcon={<LogoutIcon />}
+                  >
+                    Logout
+                  </Button>
+                </Box>
+              )}
+            </CardContent>
+          </Card>
+
           {!whoopAccessToken ? (
             <Card>
               <CardContent>
-                <Typography variant="h5" gutterBottom>
-                  Welcome to Light90
+                <Typography variant="h6" gutterBottom>
+                  Install the App
                 </Typography>
-                <Typography variant="body1" paragraph>
-                  Connect your WHOOP to get personalized recommendations for optimal sunlight exposure and coffee timing.
+                <Typography variant="body2" paragraph>
+                  Get notifications on your preferred device:
                 </Typography>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  onClick={() => setLoginOpen(true)}
-                  startIcon={<WbSunnyIcon />}
-                >
-                  Connect WHOOP
-                </Button>
+                <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                  <Tooltip title="Install on Phone">
+                    <IconButton onClick={handleInstallClick} disabled={!installPrompt}>
+                      <PhoneAndroidIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Enable Desktop Notifications">
+                    <IconButton onClick={requestNotificationPermission} disabled={notificationsEnabled}>
+                      <LaptopIcon />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
               </CardContent>
             </Card>
           ) : (
             <>
-              <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-                <Button
-                  size="small"
-                  onClick={() => setShowSettings(!showSettings)}
-                  startIcon={<SettingsIcon />}
-                >
-                  Settings
-                </Button>
-                <Button
-                  size="small"
-                  onClick={handleLogout}
-                  startIcon={<LogoutIcon />}
-                >
-                  Logout
-                </Button>
-              </Box>
-
               {error && (
                 <Paper sx={{ p: 2, bgcolor: 'error.dark' }}>
                   <Typography color="error">{error}</Typography>
@@ -273,6 +423,11 @@ const App: React.FC = () => {
                           'Not possible due to sunrise/sunset times'
                         )}
                       </Typography>
+                      {countdowns.sunlight !== null && (
+                        <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
+                          Time until sunlight: {renderCountdown(countdowns.sunlight)}
+                        </Typography>
+                      )}
                     </CardContent>
                   </Card>
 
@@ -285,6 +440,11 @@ const App: React.FC = () => {
                       <Typography variant="body1">
                         Have your coffee between {renderTimeRecommendation(optimalCoffee.start)} and {renderTimeRecommendation(optimalCoffee.end)}
                       </Typography>
+                      {countdowns.coffee !== null && (
+                        <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
+                          Time until coffee: {renderCountdown(countdowns.coffee)}
+                        </Typography>
+                      )}
                     </CardContent>
                   </Card>
 
@@ -349,6 +509,57 @@ const App: React.FC = () => {
             <Button onClick={handleWhoopLogin} variant="contained" color="primary">
               Connect
             </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog
+          open={howItWorksOpen}
+          onClose={() => setHowItWorksOpen(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>How It Works</DialogTitle>
+          <DialogContent>
+            <Stepper orientation="vertical">
+              <Step active={true}>
+                <StepLabel>Connect Your WHOOP</StepLabel>
+                <StepContent>
+                  <Typography>
+                    Light90 uses your WHOOP sleep data to know exactly when you wake up,
+                    helping time your sunlight and coffee perfectly each day.
+                  </Typography>
+                </StepContent>
+              </Step>
+              <Step active={true}>
+                <StepLabel>Get Smart Notifications</StepLabel>
+                <StepContent>
+                  <Typography>
+                    Choose how you want to be notified:
+                    <ul>
+                      <li>Install as a mobile app for push notifications</li>
+                      <li>Enable desktop notifications in your browser</li>
+                    </ul>
+                    We'll alert you at the optimal times for sunlight and coffee.
+                  </Typography>
+                </StepContent>
+              </Step>
+              <Step active={true}>
+                <StepLabel>Follow Your Personalized Schedule</StepLabel>
+                <StepContent>
+                  <Typography>
+                    Based on your wake time and local sunrise:
+                    <ul>
+                      <li>Get morning sunlight within 2 hours of waking</li>
+                      <li>Wait 90 minutes after waking for coffee</li>
+                      <li>Get afternoon sunlight 4-6 hours before bedtime</li>
+                    </ul>
+                  </Typography>
+                </StepContent>
+              </Step>
+            </Stepper>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setHowItWorksOpen(false)}>Close</Button>
           </DialogActions>
         </Dialog>
       </Container>
