@@ -125,7 +125,7 @@ const App: React.FC = () => {
   const isMobile = useMediaQuery('(max-width:600px)');
   const [loginUrl, setLoginUrl] = useState<string | null>(null);
 
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
   // Check authentication status on mount
   useEffect(() => {
