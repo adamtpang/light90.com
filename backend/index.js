@@ -4,13 +4,11 @@ const axios = require('axios');
 const passport = require('passport');
 const OAuth2Strategy = require('passport-oauth2');
 const session = require('express-session');
-const MongoStore = require('connect-mongo');
 require('dotenv').config();
 
 // Log environment variables (remove in production)
 console.log('Environment check:', {
   NODE_ENV: process.env.NODE_ENV,
-  MONGODB_URI: process.env.MONGODB_URI ? 'Set' : 'Not set',
   WHOOP_CLIENT_ID: process.env.WHOOP_CLIENT_ID ? 'Set' : 'Not set',
   WHOOP_CLIENT_SECRET: process.env.WHOOP_CLIENT_SECRET ? 'Set' : 'Not set',
   REDIRECT_URI: process.env.REDIRECT_URI,
@@ -27,15 +25,11 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Session configuration with MongoDB store
+// Session configuration
 app.use(session({
   secret: process.env.SESSION_SECRET || 'dev-secret-key',
   resave: false,
   saveUninitialized: false,
-  store: MongoStore.create({
-    mongoUrl: process.env.MONGODB_URI,
-    ttl: 24 * 60 * 60 // 1 day
-  }),
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
@@ -83,6 +77,15 @@ const whoopStrategy = new OAuth2Strategy(
 
 passport.use('whoop', whoopStrategy);
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    environment: process.env.NODE_ENV,
+    session: req.session ? 'active' : 'none'
+  });
+});
+
 // Auth routes
 app.get('/auth/whoop', passport.authenticate('whoop'));
 
@@ -93,8 +96,27 @@ app.get('/auth/whoop/callback',
   }
 );
 
-// ... rest of your routes ...
+// Check auth status
+app.get('/auth/status', (req, res) => {
+  res.json({
+    authenticated: req.isAuthenticated(),
+    user: req.user
+  });
+});
+
+// Logout route
+app.get('/auth/logout', (req, res) => {
+  req.logout(() => {
+    res.redirect(process.env.CLIENT_URL || 'http://localhost:3000');
+  });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(500).json({ error: err.message });
+});
 
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+  console.log(`Server running on port ${port} in ${process.env.NODE_ENV} mode`);
 });
