@@ -19,8 +19,23 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 // CORS configuration
+const allowedOrigins = [
+  'http://localhost:3000',     // Development
+  'http://127.0.0.1:3000',    // Development IP
+  'https://light90.com'       // Production
+];
+
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
   credentials: true
 }));
 app.use(express.json());
@@ -53,7 +68,8 @@ const whoopStrategy = new OAuth2Strategy(
     clientID: process.env.WHOOP_CLIENT_ID,
     clientSecret: process.env.WHOOP_CLIENT_SECRET,
     callbackURL: process.env.REDIRECT_URI,
-    scope: ['offline', 'read:recovery', 'read:cycles', 'read:sleep', 'read:profile', 'read:workout']
+    scope: 'offline read:recovery read:cycles read:sleep read:profile read:workout',
+    state: true
   },
   async (accessToken, refreshToken, profile, done) => {
     try {
@@ -87,7 +103,9 @@ app.get('/health', (req, res) => {
 });
 
 // Auth routes
-app.get('/auth/whoop', passport.authenticate('whoop'));
+app.get('/auth/whoop', passport.authenticate('whoop', {
+  scope: 'offline read:recovery read:cycles read:sleep read:profile read:workout'
+}));
 
 app.get('/auth/whoop/callback',
   passport.authenticate('whoop', { failureRedirect: '/login' }),
@@ -191,6 +209,22 @@ app.get('/api/v1/cycle/workout', async (req, res) => {
   } catch (error) {
     console.error('Workout API Error:', error);
     res.status(error.response?.status || 500).json({ error: error.message });
+  }
+});
+
+// Webhook endpoint for WHOOP notifications
+app.post('/webhooks/whoop', express.json(), async (req, res) => {
+  try {
+    console.log('Received WHOOP webhook:', req.body);
+
+    // TODO: Validate webhook signature if WHOOP provides one
+    // TODO: Process webhook data based on event type
+
+    // Send 200 OK to acknowledge receipt
+    res.status(200).json({ status: 'success' });
+  } catch (error) {
+    console.error('Webhook processing error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
