@@ -1,44 +1,39 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const axios = require('axios');
 const passport = require('passport');
-const OAuth2Strategy = require('passport-oauth2');
 const session = require('express-session');
-require('dotenv').config();
-
-// Log environment variables (remove in production)
-console.log('Environment check:', {
-  NODE_ENV: process.env.NODE_ENV,
-  WHOOP_CLIENT_ID: process.env.WHOOP_CLIENT_ID ? 'Set' : 'Not set',
-  WHOOP_CLIENT_SECRET: process.env.WHOOP_CLIENT_SECRET ? 'Set' : 'Not set',
-  REDIRECT_URI: process.env.REDIRECT_URI,
-  CLIENT_URL: process.env.CLIENT_URL
-});
+const OAuth2Strategy = require('passport-oauth2');
 
 const app = express();
 const port = process.env.PORT || 5000;
 
-// CORS configuration
-const allowedOrigins = [
-  'http://localhost:3000',     // Development
-  'http://127.0.0.1:3000',    // Development IP
-  'https://light90.com'       // Production
-];
+// Debug environment variables
+console.log('Debug - Environment Variables:', {
+  WHOOP_CLIENT_ID: process.env.WHOOP_CLIENT_ID,
+  NODE_ENV: process.env.NODE_ENV,
+  CLIENT_URL: process.env.CLIENT_URL,
+  REDIRECT_URI: process.env.REDIRECT_URI
+});
 
+// Basic middleware
 app.use(cors({
-  origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
-    }
-    return callback(null, true);
-  },
+  origin: process.env.CLIENT_URL || 'http://localhost:3000',
   credentials: true
 }));
 app.use(express.json());
+
+// Add request logging middleware
+app.use((req, res, next) => {
+  console.log('Incoming request:', {
+    method: req.method,
+    url: req.url,
+    headers: req.headers,
+    query: req.query,
+    body: req.body
+  });
+  next();
+});
 
 // Session configuration
 app.use(session({
@@ -48,7 +43,7 @@ app.use(session({
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    maxAge: 24 * 60 * 60 * 1000
   }
 }));
 
@@ -56,65 +51,44 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Serialize/Deserialize user
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user));
 
-// Configure Passport OAuth2 strategy
+// Configure OAuth
 const whoopStrategy = new OAuth2Strategy(
   {
-    authorizationURL: 'https://api.whoop.com/oauth/oauth2/auth',
-    tokenURL: 'https://api.whoop.com/oauth/oauth2/token',
+    authorizationURL: 'https://api.prod.whoop.com/oauth/oauth2/auth',
+    tokenURL: 'https://api.prod.whoop.com/oauth/oauth2/token',
     clientID: process.env.WHOOP_CLIENT_ID,
     clientSecret: process.env.WHOOP_CLIENT_SECRET,
     callbackURL: process.env.REDIRECT_URI,
-    scope: 'offline read:recovery read:cycles read:sleep read:profile read:workout',
-    state: true
-  },
-  async (accessToken, refreshToken, profile, done) => {
-    try {
-      const userResponse = await axios.get('https://api.whoop.com/v2/user/profile/basic', {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      });
-
-      const user = {
-        id: userResponse.data.user.id,
-        profile: userResponse.data,
-        accessToken,
-        refreshToken
-      };
-
-      return done(null, user);
-    } catch (error) {
-      return done(error);
+    scope: ['offline', 'read:sleep', 'read:profile'].join(' '),
+    state: true,
+    customHeaders: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'api-version': '2',
+      'User-Agent': 'Light90/1.0.0'
     }
+  },
+  (accessToken, refreshToken, profile, done) => {
+    console.log('OAuth callback received:', { accessToken, refreshToken });
+    return done(null, { accessToken, refreshToken });
   }
 );
+
+// Add error handling to OAuth strategy
+whoopStrategy.error = function(err) {
+  console.error('OAuth Strategy Error:', err);
+};
 
 passport.use('whoop', whoopStrategy);
 
-// Health check endpoint
+// Routes
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    environment: process.env.NODE_ENV,
-    session: req.session ? 'active' : 'none'
-  });
+  res.json({ status: 'ok' });
 });
 
-// Auth routes
-app.get('/auth/whoop', passport.authenticate('whoop', {
-  scope: 'offline read:recovery read:cycles read:sleep read:profile read:workout'
-}));
-
-app.get('/auth/whoop/callback',
-  passport.authenticate('whoop', { failureRedirect: '/login' }),
-  (req, res) => {
-    res.redirect(process.env.CLIENT_URL || 'http://localhost:3000');
-  }
-);
-
-// Check auth status
 app.get('/auth/status', (req, res) => {
   res.json({
     authenticated: req.isAuthenticated(),
@@ -122,116 +96,48 @@ app.get('/auth/status', (req, res) => {
   });
 });
 
-// Logout route
-app.get('/auth/logout', (req, res) => {
-  req.logout(() => {
-    res.redirect(process.env.CLIENT_URL || 'http://localhost:3000');
-  });
+app.get('/auth/whoop', (req, res, next) => {
+  console.log('Initiating WHOOP OAuth flow...');
+  console.log('OAuth Strategy:', whoopStrategy);
+  console.log('OAuth Strategy Options:', whoopStrategy._oauth2);
+
+  passport.authenticate('whoop', {
+    scope: ['offline', 'read:sleep', 'read:profile'],
+    state: true
+  })(req, res, next);
 });
 
-// WHOOP API proxy endpoints
-const whoopApiRequest = async (req, path) => {
-  if (!req.isAuthenticated()) {
-    throw new Error('Not authenticated');
-  }
-
-  try {
-    const response = await axios.get(`https://api.whoop.com${path}`, {
-      headers: { 'Authorization': `Bearer ${req.user.accessToken}` }
+app.get('/auth/whoop/callback',
+  (req, res, next) => {
+    console.log('Received callback request:', {
+      query: req.query,
+      headers: req.headers
     });
-    return response.data;
-  } catch (error) {
-    if (error.response?.status === 401) {
-      // Token expired, try to refresh
-      try {
-        const refreshResponse = await axios.post('https://api.whoop.com/oauth/oauth2/token', {
-          grant_type: 'refresh_token',
-          refresh_token: req.user.refreshToken,
-          client_id: process.env.WHOOP_CLIENT_ID,
-          client_secret: process.env.WHOOP_CLIENT_SECRET
-        });
-
-        req.user.accessToken = refreshResponse.data.access_token;
-        req.user.refreshToken = refreshResponse.data.refresh_token;
-
-        // Retry the original request with new token
-        const retryResponse = await axios.get(`https://api.whoop.com${path}`, {
-          headers: { 'Authorization': `Bearer ${req.user.accessToken}` }
-        });
-        return retryResponse.data;
-      } catch (refreshError) {
-        throw new Error('Token refresh failed');
-      }
-    }
-    throw error;
+    passport.authenticate('whoop', { failureRedirect: '/login' })(req, res, next);
+  },
+  (req, res) => {
+    console.log('OAuth callback successful, user:', req.user);
+    res.redirect(process.env.CLIENT_URL || 'http://localhost:3000');
   }
-};
+);
 
-// Get sleep cycles
-app.get('/api/v1/cycle/sleep', async (req, res) => {
-  try {
-    const { start, end } = req.query;
-    const data = await whoopApiRequest(
-      req,
-      `/v2/cycle/sleep?start=${start}&end=${end}`
-    );
-    res.json(data);
-  } catch (error) {
-    console.error('Sleep API Error:', error);
-    res.status(error.response?.status || 500).json({ error: error.message });
-  }
-});
-
-// Get recovery data
-app.get('/api/v1/cycle/recovery', async (req, res) => {
-  try {
-    const { start, end } = req.query;
-    const data = await whoopApiRequest(
-      req,
-      `/v2/cycle/recovery?start=${start}&end=${end}`
-    );
-    res.json(data);
-  } catch (error) {
-    console.error('Recovery API Error:', error);
-    res.status(error.response?.status || 500).json({ error: error.message });
-  }
-});
-
-// Get workout data
-app.get('/api/v1/cycle/workout', async (req, res) => {
-  try {
-    const { start, end } = req.query;
-    const data = await whoopApiRequest(
-      req,
-      `/v2/cycle/workout?start=${start}&end=${end}`
-    );
-    res.json(data);
-  } catch (error) {
-    console.error('Workout API Error:', error);
-    res.status(error.response?.status || 500).json({ error: error.message });
-  }
-});
-
-// Webhook endpoint for WHOOP notifications
-app.post('/webhooks/whoop', express.json(), async (req, res) => {
-  try {
-    console.log('Received WHOOP webhook:', req.body);
-
-    // TODO: Validate webhook signature if WHOOP provides one
-    // TODO: Process webhook data based on event type
-
-    // Send 200 OK to acknowledge receipt
-    res.status(200).json({ status: 'success' });
-  } catch (error) {
-    console.error('Webhook processing error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// Error handling middleware
+// Error handling
 app.use((err, req, res, next) => {
   console.error('Error:', err);
   res.status(500).json({ error: err.message });
+});
+
+app.use((req, res) => {
+  console.error('404 Not Found:', {
+    method: req.method,
+    url: req.url,
+    headers: req.headers
+  });
+  res.status(404).json({
+    error: 'Route not found',
+    method: req.method,
+    url: req.url
+  });
 });
 
 app.listen(port, () => {

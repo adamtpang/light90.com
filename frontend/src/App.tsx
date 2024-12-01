@@ -11,7 +11,6 @@ import {
   Card,
   CardContent,
   useMediaQuery,
-  TextField,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -38,15 +37,12 @@ import {
 } from 'recharts';
 import BedtimeIcon from '@mui/icons-material/Bedtime';
 import LogoutIcon from '@mui/icons-material/ExitToApp';
-import SettingsIcon from '@mui/icons-material/Settings';
 import WbSunnyIcon from '@mui/icons-material/WbSunny';
 import CoffeeIcon from '@mui/icons-material/Coffee';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import LaptopIcon from '@mui/icons-material/Laptop';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import FavoriteIcon from '@mui/icons-material/Favorite';
-import { format, addMinutes, differenceInMinutes, subDays, parseISO } from 'date-fns';
+import { format, addMinutes, differenceInMinutes, subDays } from 'date-fns';
 import { getTimes } from 'suncalc';
 import './App.css';
 
@@ -67,243 +63,89 @@ const theme = createTheme({
 });
 
 interface SleepData {
-  startTime: string;
-  endTime: string;
-  qualityScore: number;
+  start_time: string;
+  end_time: string;
+  score: number;
 }
 
-interface WhoopData {
-  sleepData: SleepData[];
-  recoveryData: {
-    date: string;
-    score: number;
-    restingHeartRate: number;
-    hrvMs: number;
-  }[];
-  workoutData: {
-    date: string;
-    strain: number;
-    duration: number;
-    kilojoules: number;
-  }[];
-}
-
-interface LightExposure {
-  date: string;
-  duration: number;
-}
-
-interface LoginCredentials {
-  email: string;
-  password: string;
+interface VitalUser {
+  user_id: string;
+  provider: string;
+  connected: boolean;
 }
 
 const App: React.FC = () => {
-  const [whoopData, setWhoopData] = useState<WhoopData>({
-    sleepData: [],
-    recoveryData: [],
-    workoutData: []
-  });
+  const [sleepData, setSleepData] = useState<SleepData[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loginOpen, setLoginOpen] = useState(false);
-  const [authenticated, setAuthenticated] = useState(false);
-  const [user, setUser] = useState<any>(null);
-  const [sleepData, setSleepData] = useState<SleepData | null>(null);
-  const [lightExposure, setLightExposure] = useState<LightExposure | null>(null);
+  const [user, setUser] = useState<VitalUser | null>(null);
   const [location, setLocation] = useState<{ lat: number; lon: number } | null>(null);
   const [sunTimes, setSunTimes] = useState<any>(null);
-  const [showSettings, setShowSettings] = useState(false);
   const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
-  const [credentials, setCredentials] = useState<LoginCredentials>({ email: '', password: '' });
   const [countdowns, setCountdowns] = useState<{
     sunlight: number | null;
     coffee: number | null;
   }>({ sunlight: null, coffee: null });
   const isMobile = useMediaQuery('(max-width:600px)');
-  const [loginUrl, setLoginUrl] = useState<string | null>(null);
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
-  // Check authentication status on mount
+  const connectWhoop = () => {
+    window.location.href = `${API_URL}/auth/whoop`;
+  };
+
   useEffect(() => {
     const checkAuth = async () => {
       try {
         const response = await fetch(`${API_URL}/auth/status`, {
-          credentials: 'include' // Important for session cookies
+          credentials: 'include'
         });
         const data = await response.json();
 
         if (data.authenticated) {
-          setAuthenticated(true);
           setUser(data.user);
-          fetchWhoopData();
+          fetchSleepData();
         }
       } catch (error) {
         console.error('Auth check failed:', error);
+        setError('Failed to check authentication status');
       }
     };
 
     checkAuth();
   }, []);
 
-  const handleWhoopLogin = () => {
-    // Redirect to WHOOP OAuth
-    window.location.href = `${API_URL}/auth/whoop`;
-  };
-
-  const handleLogout = async () => {
-    try {
-      await fetch(`${API_URL}/auth/logout`, {
-        credentials: 'include'
-      });
-      setAuthenticated(false);
-      setUser(null);
-      setWhoopData({
-        sleepData: [],
-        recoveryData: [],
-        workoutData: []
-      });
-      setSleepData(null);
-      setLightExposure(null);
-    } catch (error) {
-      console.error('Logout failed:', error);
-    }
-  };
-
-  const fetchWhoopData = async (): Promise<void> => {
-    if (!authenticated) return;
+  const fetchSleepData = async () => {
+    if (!user) return;
     setLoading(true);
     setError(null);
 
     try {
-      console.log('Starting data fetch...');
       const endDate = new Date();
       const startDate = subDays(endDate, 7);
-      const dateRange = {
-        start_time: startDate.toISOString(),
-        end_time: endDate.toISOString()
-      };
 
-      // Get sleep data
-      const sleepResponse = await fetch(
-        `${API_URL}/api/v1/cycle/sleep?start=${dateRange.start_time}&end=${dateRange.end_time}`,
+      const response = await fetch(
+        `${API_URL}/api/v1/sleep?start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}`,
         {
           credentials: 'include'
         }
       );
 
-      if (!sleepResponse.ok) {
-        throw new Error(`Sleep API failed: ${sleepResponse.status}`);
+      if (!response.ok) {
+        throw new Error(`Sleep API failed: ${response.status}`);
       }
 
-      const sleepData = await sleepResponse.json();
-      console.log('Sleep data:', sleepData);
-
-      // Get recovery data
-      const recoveryResponse = await fetch(
-        `${API_URL}/api/v1/cycle/recovery?start=${dateRange.start_time}&end=${dateRange.end_time}`,
-        {
-          credentials: 'include'
-        }
-      );
-
-      if (!recoveryResponse.ok) {
-        throw new Error(`Recovery API failed: ${recoveryResponse.status}`);
-      }
-
-      const recoveryData = await recoveryResponse.json();
-      console.log('Recovery data:', recoveryData);
-
-      // Get workout data
-      const workoutResponse = await fetch(
-        `${API_URL}/api/v1/cycle/workout?start=${dateRange.start_time}&end=${dateRange.end_time}`,
-        {
-          credentials: 'include'
-        }
-      );
-
-      if (!workoutResponse.ok) {
-        throw new Error(`Workout API failed: ${workoutResponse.status}`);
-      }
-
-      const workoutData = await workoutResponse.json();
-      console.log('Workout data:', workoutData);
-
-      // Process and combine all data
-      const processedSleepData = sleepData.cycles
-        .filter((sleep: any) => sleep.state === 'complete')
-        .map((sleep: any) => ({
-          startTime: sleep.start,
-          endTime: sleep.end,
-          qualityScore: Math.round((sleep.score?.quality || 0) * 100)
-        }))
-        .sort((a: SleepData, b: SleepData) =>
-          new Date(b.endTime).getTime() - new Date(a.endTime).getTime()
-        );
-
-      const processedRecoveryData = recoveryData.cycles
-        .map((recovery: any) => ({
-          date: recovery.timestamp,
-          score: Math.round(recovery.score?.recovery || 0),
-          restingHeartRate: recovery.score?.resting_heart_rate || 0,
-          hrvMs: recovery.score?.hrv_rmssd || 0
-        }))
-        .sort((a: any, b: any) =>
-          new Date(b.date).getTime() - new Date(a.date).getTime()
-        );
-
-      const processedWorkoutData = workoutData.cycles
-        .map((workout: any) => ({
-          date: workout.start,
-          strain: Math.round(workout.score?.strain || 0),
-          duration: workout.duration || 0,
-          kilojoules: workout.kilojoules || 0
-        }))
-        .sort((a: any, b: any) =>
-          new Date(b.date).getTime() - new Date(a.date).getTime()
-        );
-
-      setWhoopData({
-        sleepData: processedSleepData,
-        recoveryData: processedRecoveryData,
-        workoutData: processedWorkoutData
-      });
-
-      if (processedSleepData.length > 0) {
-        setSleepData(processedSleepData[0]);
-      } else {
-        setError('No recent sleep data found');
-      }
-
+      const data = await response.json();
+      setSleepData(data.cycles.map((sleep: any) => ({
+        start_time: sleep.start,
+        end_time: sleep.end,
+        score: Math.round((sleep.score?.quality || 0) * 100)
+      })));
     } catch (error) {
-      console.error('Error fetching WHOOP data:', error);
-      if (error instanceof Error && error.message.includes('401')) {
-        // Token expired, try to refresh
-        try {
-          const refreshResponse = await fetch(`${API_URL}/auth/refresh`, {
-            method: 'POST',
-            credentials: 'include'
-          });
-
-          if (refreshResponse.ok) {
-            // Retry the data fetch
-            return fetchWhoopData();
-          } else {
-            // Refresh failed, user needs to login again
-            setAuthenticated(false);
-            setUser(null);
-            setError('Session expired. Please login again.');
-          }
-        } catch (refreshError) {
-          console.error('Token refresh failed:', refreshError);
-          setError('Session expired. Please login again.');
-        }
-      } else {
-        setError(`Error fetching data: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
+      console.error('Error fetching sleep data:', error);
+      setError('Failed to fetch sleep data');
     } finally {
       setLoading(false);
     }
@@ -343,7 +185,7 @@ const App: React.FC = () => {
 
   // Update countdowns every minute
   useEffect(() => {
-    if (sleepData && sunTimes) {
+    if (sleepData.length > 0 && sunTimes) {
       const interval = setInterval(() => {
         const now = new Date();
         const optimalTimes = calculateOptimalSunlight();
@@ -372,7 +214,7 @@ const App: React.FC = () => {
   };
 
   const scheduleNotifications = () => {
-    if (!sleepData) return;
+    if (sleepData.length === 0) return;
 
     const optimalTimes = calculateOptimalSunlight();
     const optimalCoffee = calculateOptimalCoffee();
@@ -410,16 +252,17 @@ const App: React.FC = () => {
   };
 
   const calculateOptimalSunlight = () => {
-    if (!sleepData || !sunTimes) return null;
+    if (sleepData.length === 0 || !sunTimes) return null;
 
-    const wakeTime = new Date(sleepData.endTime);
+    const latestSleep = sleepData[0];
+    const wakeTime = new Date(latestSleep.end_time);
     const sunrise = new Date(sunTimes.sunrise);
     const sunset = new Date(sunTimes.sunset);
 
     const morningStart = wakeTime;
     const morningEnd = addMinutes(wakeTime, 120);
 
-    const nextBedtime = new Date(sleepData.startTime);
+    const nextBedtime = new Date(latestSleep.start_time);
     nextBedtime.setDate(nextBedtime.getDate() + 1);
     const afternoonStart = addMinutes(nextBedtime, -360);
     const afternoonEnd = addMinutes(nextBedtime, -240);
@@ -439,9 +282,10 @@ const App: React.FC = () => {
   };
 
   const calculateOptimalCoffee = () => {
-    if (!sleepData) return null;
+    if (sleepData.length === 0) return null;
 
-    const wakeTime = new Date(sleepData.endTime);
+    const latestSleep = sleepData[0];
+    const wakeTime = new Date(latestSleep.end_time);
     const optimalStart = addMinutes(wakeTime, 90);
     const optimalEnd = addMinutes(wakeTime, 120);
 
@@ -479,12 +323,12 @@ const App: React.FC = () => {
               <Typography variant="body1" paragraph>
                 Optimize your sunlight exposure and coffee timing for better energy and sleep.
               </Typography>
-              {!authenticated ? (
+              {!user ? (
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                   <Button
                     variant="contained"
                     color="primary"
-                    onClick={handleWhoopLogin}
+                    onClick={connectWhoop}
                     startIcon={<WbSunnyIcon />}
                   >
                     Connect WHOOP
@@ -498,24 +342,15 @@ const App: React.FC = () => {
                 </Box>
               ) : (
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-                  {user && (
-                    <Typography variant="body2" sx={{ mr: 2, alignSelf: 'center' }}>
-                      Connected as {user.profile?.user?.firstName || 'User'}
-                    </Typography>
-                  )}
-                  <Button
-                    size="small"
-                    onClick={handleLogout}
-                    startIcon={<LogoutIcon />}
-                  >
-                    Disconnect WHOOP
-                  </Button>
+                  <Typography variant="body2" sx={{ mr: 2, alignSelf: 'center' }}>
+                    Connected to WHOOP
+                  </Typography>
                 </Box>
               )}
             </CardContent>
           </Card>
 
-          {!authenticated ? (
+          {!user ? (
             <Card>
               <CardContent>
                 <Typography variant="h6" gutterBottom>
@@ -544,164 +379,158 @@ const App: React.FC = () => {
             </Card>
           ) : (
             <>
-              {authenticated && (
+              {error && (
+                <Paper sx={{ p: 2, bgcolor: 'error.dark' }}>
+                  <Typography color="error">{error}</Typography>
+                </Paper>
+              )}
+
+              {loading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                  <CircularProgress />
+                </Box>
+              ) : (
                 <>
-                  {error && (
-                    <Paper sx={{ p: 2, bgcolor: 'error.dark' }}>
-                      <Typography color="error">{error}</Typography>
-                    </Paper>
-                  )}
-
-                  {loading ? (
-                    <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-                      <CircularProgress />
-                    </Box>
-                  ) : (
+                  {sleepData.length > 0 && (
                     <>
-                      {sleepData && (
-                        <>
+                      <Card>
+                        <CardContent>
+                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                            <BedtimeIcon sx={{ mr: 1 }} />
+                            <Typography variant="h6">Sleep Schedule</Typography>
+                          </Box>
+                          <Typography variant="body1">
+                            Last night's sleep: {format(new Date(sleepData[0].start_time), 'h:mm a')} - {format(new Date(sleepData[0].end_time), 'h:mm a')}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Sleep quality score: {sleepData[0].score}%
+                          </Typography>
+                        </CardContent>
+                      </Card>
+
+                      <Grid container spacing={3} sx={{ mt: 2 }}>
+                        <Grid item xs={12} md={6}>
                           <Card>
                             <CardContent>
-                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                                <BedtimeIcon sx={{ mr: 1 }} />
-                                <Typography variant="h6">Sleep Schedule</Typography>
-                              </Box>
-                              <Typography variant="body1">
-                                Last night's sleep: {format(new Date(sleepData.startTime), 'h:mm a')} - {format(new Date(sleepData.endTime), 'h:mm a')}
+                              <Typography variant="h6" gutterBottom>
+                                Sleep Quality Trend
                               </Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                Sleep quality score: {sleepData.qualityScore}%
-                              </Typography>
+                              <ResponsiveContainer width="100%" height={300}>
+                                <AreaChart data={sleepData.slice().reverse()}>
+                                  <CartesianGrid strokeDasharray="3 3" />
+                                  <XAxis
+                                    dataKey="start_time"
+                                    tickFormatter={(time) => format(new Date(time), 'MMM d')}
+                                  />
+                                  <YAxis domain={[0, 100]} />
+                                  <RechartsTooltip
+                                    formatter={(value: number) => [`${value}%`, 'Sleep Quality']}
+                                    labelFormatter={(time) => format(new Date(time), 'MMM d, yyyy')}
+                                  />
+                                  <Area
+                                    type="monotone"
+                                    dataKey="score"
+                                    stroke="#ffd700"
+                                    fill="#ffd700"
+                                    fillOpacity={0.3}
+                                  />
+                                </AreaChart>
+                              </ResponsiveContainer>
                             </CardContent>
                           </Card>
+                        </Grid>
 
-                          {whoopData.sleepData.length > 0 && (
-                            <Grid container spacing={3} sx={{ mt: 2 }}>
-                              <Grid item xs={12} md={6}>
-                                <Card>
-                                  <CardContent>
-                                    <Typography variant="h6" gutterBottom>
-                                      Sleep Quality Trend
-                                    </Typography>
-                                    <ResponsiveContainer width="100%" height={300}>
-                                      <AreaChart data={whoopData.sleepData.slice().reverse()}>
-                                        <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis
-                                          dataKey="startTime"
-                                          tickFormatter={(time) => format(new Date(time), 'MMM d')}
-                                        />
-                                        <YAxis domain={[0, 100]} />
-                                        <RechartsTooltip
-                                          formatter={(value: number) => [`${value}%`, 'Sleep Quality']}
-                                          labelFormatter={(time) => format(new Date(time), 'MMM d, yyyy')}
-                                        />
-                                        <Area
-                                          type="monotone"
-                                          dataKey="qualityScore"
-                                          stroke="#ffd700"
-                                          fill="#ffd700"
-                                          fillOpacity={0.3}
-                                        />
-                                      </AreaChart>
-                                    </ResponsiveContainer>
-                                  </CardContent>
-                                </Card>
-                              </Grid>
+                        <Grid item xs={12} md={6}>
+                          <Card>
+                            <CardContent>
+                              <Typography variant="h6" gutterBottom>
+                                Wake Time Pattern
+                              </Typography>
+                              <ResponsiveContainer width="100%" height={300}>
+                                <LineChart data={sleepData.slice().reverse()}>
+                                  <CartesianGrid strokeDasharray="3 3" />
+                                  <XAxis
+                                    dataKey="end_time"
+                                    tickFormatter={(time) => format(new Date(time), 'MMM d')}
+                                  />
+                                  <YAxis
+                                    tickFormatter={(time) => format(new Date(time), 'h:mm a')}
+                                    domain={['dataMin', 'dataMax']}
+                                  />
+                                  <RechartsTooltip
+                                    labelFormatter={(time) => format(new Date(time), 'MMM d, yyyy')}
+                                    formatter={(value: string) => [format(new Date(value), 'h:mm a'), 'Wake Time']}
+                                  />
+                                  <Line
+                                    type="monotone"
+                                    dataKey="end_time"
+                                    stroke="#ffd700"
+                                    dot={{ fill: '#ffd700' }}
+                                  />
+                                </LineChart>
+                              </ResponsiveContainer>
+                            </CardContent>
+                          </Card>
+                        </Grid>
+                      </Grid>
 
-                              <Grid item xs={12} md={6}>
-                                <Card>
-                                  <CardContent>
-                                    <Typography variant="h6" gutterBottom>
-                                      Wake Time Pattern
-                                    </Typography>
-                                    <ResponsiveContainer width="100%" height={300}>
-                                      <LineChart data={whoopData.sleepData.slice().reverse()}>
-                                        <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis
-                                          dataKey="endTime"
-                                          tickFormatter={(time) => format(new Date(time), 'MMM d')}
-                                        />
-                                        <YAxis
-                                          tickFormatter={(time) => format(new Date(time), 'h:mm a')}
-                                          domain={['dataMin', 'dataMax']}
-                                        />
-                                        <RechartsTooltip
-                                          labelFormatter={(time) => format(new Date(time), 'MMM d, yyyy')}
-                                          formatter={(value: string) => [format(new Date(value), 'h:mm a'), 'Wake Time']}
-                                        />
-                                        <Line
-                                          type="monotone"
-                                          dataKey="endTime"
-                                          stroke="#ffd700"
-                                          dot={{ fill: '#ffd700' }}
-                                        />
-                                      </LineChart>
-                                    </ResponsiveContainer>
-                                  </CardContent>
-                                </Card>
-                              </Grid>
-                            </Grid>
+                      <Card sx={{ mt: 2 }}>
+                        <CardContent>
+                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                            <WbSunnyIcon sx={{ mr: 1 }} />
+                            <Typography variant="h6">Morning Sunlight</Typography>
+                          </Box>
+                          <Typography variant="body1">
+                            {optimalTimes?.morning.possible ? (
+                              `Get 10-30 minutes of sunlight between ${renderTimeRecommendation(optimalTimes.morning.start)} and ${renderTimeRecommendation(optimalTimes.morning.end)}`
+                            ) : (
+                              'Not possible due to sunrise/sunset times'
+                            )}
+                          </Typography>
+                          {countdowns.sunlight !== null && (
+                            <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
+                              Time until sunlight: {renderCountdown(countdowns.sunlight)}
+                            </Typography>
                           )}
+                        </CardContent>
+                      </Card>
 
-                          <Card sx={{ mt: 2 }}>
-                            <CardContent>
-                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                                <WbSunnyIcon sx={{ mr: 1 }} />
-                                <Typography variant="h6">Morning Sunlight</Typography>
-                              </Box>
-                              <Typography variant="body1">
-                                {optimalTimes?.morning.possible ? (
-                                  `Get 10-30 minutes of sunlight between ${renderTimeRecommendation(optimalTimes.morning.start)} and ${renderTimeRecommendation(optimalTimes.morning.end)}`
-                                ) : (
-                                  'Not possible due to sunrise/sunset times'
-                                )}
-                              </Typography>
-                              {countdowns.sunlight !== null && (
-                                <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
-                                  Time until sunlight: {renderCountdown(countdowns.sunlight)}
-                                </Typography>
-                              )}
-                            </CardContent>
-                          </Card>
+                      <Card sx={{ mt: 2 }}>
+                        <CardContent>
+                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                            <CoffeeIcon sx={{ mr: 1 }} />
+                            <Typography variant="h6">Optimal Coffee Time</Typography>
+                          </Box>
+                          <Typography variant="body1">
+                            {optimalCoffee ? (
+                              `Wait until ${renderTimeRecommendation(optimalCoffee.start)} (${renderCountdown(countdowns.coffee)} from now)`
+                            ) : (
+                              'Calculating...'
+                            )}
+                          </Typography>
+                          {countdowns.coffee !== null && (
+                            <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
+                              Time until coffee: {renderCountdown(countdowns.coffee)}
+                            </Typography>
+                          )}
+                        </CardContent>
+                      </Card>
 
-                          <Card sx={{ mt: 2 }}>
-                            <CardContent>
-                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                                <CoffeeIcon sx={{ mr: 1 }} />
-                                <Typography variant="h6">Optimal Coffee Time</Typography>
-                              </Box>
-                              <Typography variant="body1">
-                                {optimalCoffee ? (
-                                  `Wait until ${renderTimeRecommendation(optimalCoffee.start)} (${renderCountdown(countdowns.coffee)} from now)`
-                                ) : (
-                                  'Calculating...'
-                                )}
-                              </Typography>
-                              {countdowns.coffee !== null && (
-                                <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
-                                  Time until coffee: {renderCountdown(countdowns.coffee)}
-                                </Typography>
-                              )}
-                            </CardContent>
-                          </Card>
-
-                          <Card>
-                            <CardContent>
-                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                                <WbSunnyIcon sx={{ mr: 1 }} />
-                                <Typography variant="h6">Afternoon Sunlight</Typography>
-                              </Box>
-                              <Typography variant="body1">
-                                {optimalTimes?.afternoon.possible ? (
-                                  `Get 10-30 minutes of sunlight between ${renderTimeRecommendation(optimalTimes.afternoon.start)} and ${renderTimeRecommendation(optimalTimes.afternoon.end)}`
-                                ) : (
-                                  'Not possible due to sunrise/sunset times'
-                                )}
-                              </Typography>
-                            </CardContent>
-                          </Card>
-                        </>
-                      )}
+                      <Card>
+                        <CardContent>
+                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                            <WbSunnyIcon sx={{ mr: 1 }} />
+                            <Typography variant="h6">Afternoon Sunlight</Typography>
+                          </Box>
+                          <Typography variant="body1">
+                            {optimalTimes?.afternoon.possible ? (
+                              `Get 10-30 minutes of sunlight between ${renderTimeRecommendation(optimalTimes.afternoon.start)} and ${renderTimeRecommendation(optimalTimes.afternoon.end)}`
+                            ) : (
+                              'Not possible due to sunrise/sunset times'
+                            )}
+                          </Typography>
+                        </CardContent>
+                      </Card>
                     </>
                   )}
                 </>
@@ -709,25 +538,6 @@ const App: React.FC = () => {
             </>
           )}
         </Box>
-
-        <Dialog open={loginOpen} onClose={() => setLoginOpen(false)}>
-          <DialogTitle>Connect your WHOOP</DialogTitle>
-          <DialogContent>
-            <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Typography variant="body1">
-                Click the button below to connect your WHOOP account. You'll be redirected to WHOOP to authorize access.
-              </Typography>
-              <Button
-                variant="contained"
-                color="primary"
-                onClick={handleWhoopLogin}
-                startIcon={<WbSunnyIcon />}
-              >
-                Connect with WHOOP
-              </Button>
-            </Box>
-          </DialogContent>
-        </Dialog>
 
         <Dialog
           open={howItWorksOpen}
