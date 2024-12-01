@@ -57,7 +57,7 @@ const whoopStrategy = new OAuth2Strategy(
   },
   async (accessToken, refreshToken, profile, done) => {
     try {
-      const userResponse = await axios.get('https://api.whoop.com/v1/user/profile', {
+      const userResponse = await axios.get('https://api.whoop.com/v2/user/profile/basic', {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
 
@@ -109,6 +109,89 @@ app.get('/auth/logout', (req, res) => {
   req.logout(() => {
     res.redirect(process.env.CLIENT_URL || 'http://localhost:3000');
   });
+});
+
+// WHOOP API proxy endpoints
+const whoopApiRequest = async (req, path) => {
+  if (!req.isAuthenticated()) {
+    throw new Error('Not authenticated');
+  }
+
+  try {
+    const response = await axios.get(`https://api.whoop.com${path}`, {
+      headers: { 'Authorization': `Bearer ${req.user.accessToken}` }
+    });
+    return response.data;
+  } catch (error) {
+    if (error.response?.status === 401) {
+      // Token expired, try to refresh
+      try {
+        const refreshResponse = await axios.post('https://api.whoop.com/oauth/oauth2/token', {
+          grant_type: 'refresh_token',
+          refresh_token: req.user.refreshToken,
+          client_id: process.env.WHOOP_CLIENT_ID,
+          client_secret: process.env.WHOOP_CLIENT_SECRET
+        });
+
+        req.user.accessToken = refreshResponse.data.access_token;
+        req.user.refreshToken = refreshResponse.data.refresh_token;
+
+        // Retry the original request with new token
+        const retryResponse = await axios.get(`https://api.whoop.com${path}`, {
+          headers: { 'Authorization': `Bearer ${req.user.accessToken}` }
+        });
+        return retryResponse.data;
+      } catch (refreshError) {
+        throw new Error('Token refresh failed');
+      }
+    }
+    throw error;
+  }
+};
+
+// Get sleep cycles
+app.get('/api/v1/cycle/sleep', async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    const data = await whoopApiRequest(
+      req,
+      `/v2/cycle/sleep?start=${start}&end=${end}`
+    );
+    res.json(data);
+  } catch (error) {
+    console.error('Sleep API Error:', error);
+    res.status(error.response?.status || 500).json({ error: error.message });
+  }
+});
+
+// Get recovery data
+app.get('/api/v1/cycle/recovery', async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    const data = await whoopApiRequest(
+      req,
+      `/v2/cycle/recovery?start=${start}&end=${end}`
+    );
+    res.json(data);
+  } catch (error) {
+    console.error('Recovery API Error:', error);
+    res.status(error.response?.status || 500).json({ error: error.message });
+  }
+});
+
+// Get workout data
+app.get('/api/v1/cycle/workout', async (req, res) => {
+  try {
+    const { start, end } = req.query;
+    const data = await whoopApiRequest(
+      req,
+      `/v2/cycle/workout?start=${start}&end=${end}`
+    );
+    res.json(data);
+  } catch (error) {
+    console.error('Workout API Error:', error);
+    res.status(error.response?.status || 500).json({ error: error.message });
+  }
 });
 
 // Error handling middleware
