@@ -3,34 +3,70 @@ const express = require('express');
 const cors = require('cors');
 const passport = require('passport');
 const session = require('express-session');
+const RedisStore = require('connect-redis').default;
+const { createClient } = require('redis');
 const OAuth2Strategy = require('passport-oauth2');
 const axios = require('axios');
 const cron = require('node-cron');
 const { getTimes } = require('suncalc');
 
 const app = express();
-const port = process.env.PORT || 5000;
 
-// Debug environment variables
-console.log('Debug - Environment Variables:', {
-  WHOOP_CLIENT_ID: process.env.WHOOP_CLIENT_ID,
-  NODE_ENV: process.env.NODE_ENV,
-  CLIENT_URL: process.env.CLIENT_URL,
-  REDIRECT_URI: process.env.REDIRECT_URI
-});
+// Redis client setup
+let redisClient;
+let sessionStore;
+
+if (process.env.NODE_ENV === 'production') {
+  console.log('Setting up Redis in production mode');
+  // Use Redis in production
+  redisClient = createClient({
+    url: process.env.REDIS_URL || process.env.REDISCLOUD_URL,
+    legacyMode: false
+  });
+
+  redisClient.on('error', (err) => console.error('Redis Client Error:', err));
+  redisClient.on('connect', () => console.log('Redis Client Connected'));
+  redisClient.on('ready', () => console.log('Redis Client Ready'));
+  redisClient.on('reconnecting', () => console.log('Redis Client Reconnecting'));
+  redisClient.on('end', () => console.log('Redis Client Connection Ended'));
+
+  redisClient.connect().catch(console.error);
+
+  sessionStore = new RedisStore({
+    client: redisClient,
+    prefix: "light90:"
+  });
+
+  console.log('Redis session store configured');
+} else {
+  // Use memory store in development
+  console.log('Using memory store in development mode');
+  sessionStore = new session.MemoryStore();
+}
 
 // Session configuration
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'dev-secret-key',
-  resave: true,
-  saveUninitialized: true,
+  store: sessionStore,
+  secret: process.env.SESSION_SECRET || 'your-secret-key',
+  resave: false,
+  saveUninitialized: false,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000,
-    sameSite: 'lax'
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
 }));
+
+// Add session debugging middleware
+app.use((req, res, next) => {
+  console.log('Session Debug:', {
+    id: req.sessionID,
+    cookie: req.session?.cookie,
+    user: req.session?.passport?.user ? 'exists' : 'none',
+    store: req.session?.store ? 'exists' : 'none'
+  });
+  next();
+});
 
 // Initialize Passport
 app.use(passport.initialize());
@@ -38,7 +74,11 @@ app.use(passport.session());
 
 // Basic middleware
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: [
+    'https://light90.com',
+    'https://www.light90.com',
+    'http://localhost:3000'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -404,68 +444,29 @@ app.get('/api/v1/profile', async (req, res) => {
 // Function to calculate notification times for a user
 const calculateNotificationTimes = async (user) => {
   try {
-    // Get user's latest sleep data
-    const response = await axios.get('https://api.prod.whoop.com/developer/v1/cycle/sleep', {
-      headers: {
-        'Authorization': `Bearer ${user.tokenParams.access_token}`,
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'api-version': '2'
-      }
-    });
-
-    if (response.data?.records?.[0]) {
-      const latestSleep = response.data.records[0];
-      const wakeTime = new Date(latestSleep.end);
-
-      // Calculate optimal times
-      const sunlightTime = new Date(wakeTime);
-      sunlightTime.setMinutes(sunlightTime.getMinutes() + 15); // 15 minutes after waking
-
-      const coffeeTime = new Date(wakeTime);
-      coffeeTime.setMinutes(coffeeTime.getMinutes() + 90); // 90 minutes after waking
-
-      return {
-        sunlightTime,
-        coffeeTime
-      };
+    if (!user?.profile?.records?.[0]) {
+      return null;
     }
-    return null;
+
+    const latestSleep = user.profile.records[0];
+    const wakeTime = new Date(latestSleep.end);
+
+    // Calculate optimal times
+    const sunlightTime = new Date(wakeTime);
+    sunlightTime.setMinutes(sunlightTime.getMinutes() + 15); // 15 minutes after waking
+
+    const coffeeTime = new Date(wakeTime);
+    coffeeTime.setMinutes(coffeeTime.getMinutes() + 90); // 90 minutes after waking
+
+    return {
+      sunlightTime,
+      coffeeTime
+    };
   } catch (error) {
     console.error('Error calculating notification times:', error);
     return null;
   }
 };
-
-// Schedule notifications for all users
-const scheduleNotifications = async () => {
-  try {
-    // Get all active users (you'll need to implement user storage)
-    const users = await User.find({ active: true }); // This is pseudocode - implement your user storage
-
-    for (const user of users) {
-      const times = await calculateNotificationTimes(user);
-      if (times) {
-        // Schedule notifications for this user
-        console.log(`Scheduled notifications for user ${user.id}:`, times);
-      }
-    }
-  } catch (error) {
-    console.error('Error scheduling notifications:', error);
-  }
-};
-
-// Run every day at midnight
-cron.schedule('0 0 * * *', async () => {
-  console.log('Running daily notification scheduling...');
-  await scheduleNotifications();
-});
-
-// Run every hour to check for any missed notifications or updates
-cron.schedule('0 * * * *', async () => {
-  console.log('Running hourly notification check...');
-  await scheduleNotifications();
-});
 
 // Add status endpoint to check scheduling
 app.get('/api/v1/schedule/status', (req, res) => {
@@ -522,6 +523,9 @@ app.use((req, res) => {
   });
 });
 
-app.listen(port, () => {
-  console.log(`Server running on port ${port} in ${process.env.NODE_ENV} mode`);
+// Use PORT from environment variables (Railway sets this)
+const PORT = process.env.PORT || 8080;
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
 });
