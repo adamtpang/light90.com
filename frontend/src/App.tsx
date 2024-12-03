@@ -772,7 +772,7 @@ const App: React.FC = () => {
                     wordBreak: 'break-word'  // Prevent text overflow on mobile
                   }}
                 >
-                  Catch first light at sunrise, perfect coffee 90 minutes after wake
+                  First light. First coffee.
                 </Typography>
               </Box>
 
