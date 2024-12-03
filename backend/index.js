@@ -74,16 +74,15 @@ app.use(passport.session());
 
 // Basic middleware
 app.use(cors({
-  origin: [
-    'https://light90.com',
-    'https://www.light90.com',
-    'http://localhost:3000'
-  ],
+  origin: ['https://light90.com', 'http://localhost:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
 app.use(express.json());
+
+// Add CORS preflight
+app.options('*', cors());
 
 // Add request logging middleware
 app.use((req, res, next) => {
