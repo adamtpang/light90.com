@@ -214,32 +214,77 @@ const App: React.FC = () => {
   };
 
   const scheduleNotifications = () => {
-    if (sleepData.length === 0) return;
+    if (sleepData.length === 0 || !sunTimes) return;
 
     const optimalTimes = calculateOptimalSunlight();
     const optimalCoffee = calculateOptimalCoffee();
+    const now = new Date();
 
     if (optimalTimes && optimalCoffee) {
-      const now = new Date();
-      const sunlightTime = optimalTimes.morning.start;
-      const coffeeTime = optimalCoffee.start;
+      // Schedule morning sunlight notification
+      if (optimalTimes.morning.possible && optimalTimes.morning.start > now) {
+        const sunlightDelay = optimalTimes.morning.start.getTime() - now.getTime();
+        console.log('Scheduling morning sunlight notification for:', {
+          wakeTime: format(optimalTimes.morning.start, 'h:mm a'),
+          delay: Math.round(sunlightDelay / 1000 / 60) + ' minutes'
+        });
 
-      if (sunlightTime > now) {
         setTimeout(() => {
           new Notification('Time for Morning Sunlight! ☀️', {
-            body: 'Get 10-30 minutes of sunlight for optimal energy',
+            body: `Get 10-30 minutes of sunlight between ${format(optimalTimes.morning.start, 'h:mm a')} and ${format(optimalTimes.morning.end, 'h:mm a')} for optimal energy`,
             icon: '/logo192.svg'
           });
-        }, sunlightTime.getTime() - now.getTime());
+        }, sunlightDelay);
+      } else {
+        console.log('Morning sunlight notification not scheduled:', {
+          isPossible: optimalTimes.morning.possible,
+          wakeTime: format(optimalTimes.morning.start, 'h:mm a'),
+          sunrise: format(new Date(sunTimes.sunrise), 'h:mm a'),
+          sunset: format(new Date(sunTimes.sunset), 'h:mm a')
+        });
       }
 
-      if (coffeeTime > now) {
+      // Schedule coffee notification
+      if (optimalCoffee.start > now) {
+        const coffeeDelay = optimalCoffee.start.getTime() - now.getTime();
+        console.log('Scheduling coffee notification for:', {
+          time: format(optimalCoffee.start, 'h:mm a'),
+          delay: Math.round(coffeeDelay / 1000 / 60) + ' minutes'
+        });
+
         setTimeout(() => {
           new Notification('Optimal Coffee Time! ☕', {
-            body: 'It\'s the perfect time for your first cup of coffee',
+            body: `It's the perfect time for your first cup of coffee (90 minutes after waking at ${format(optimalCoffee.start, 'h:mm a')})`,
             icon: '/logo192.svg'
           });
-        }, coffeeTime.getTime() - now.getTime());
+        }, coffeeDelay);
+      } else {
+        console.log('Coffee notification not scheduled:', {
+          optimalTime: format(optimalCoffee.start, 'h:mm a'),
+          currentTime: format(now, 'h:mm a')
+        });
+      }
+
+      // Schedule afternoon sunlight notification
+      if (optimalTimes.afternoon.possible && optimalTimes.afternoon.start > now) {
+        const afternoonDelay = optimalTimes.afternoon.start.getTime() - now.getTime();
+        console.log('Scheduling afternoon sunlight notification for:', {
+          time: format(optimalTimes.afternoon.start, 'h:mm a'),
+          delay: Math.round(afternoonDelay / 1000 / 60) + ' minutes'
+        });
+
+        setTimeout(() => {
+          new Notification('Afternoon Sunlight Time! 🌤️', {
+            body: `Get 10-30 minutes of sunlight between ${format(optimalTimes.afternoon.start, 'h:mm a')} and ${format(optimalTimes.afternoon.end, 'h:mm a')} for better sleep`,
+            icon: '/logo192.svg'
+          });
+        }, afternoonDelay);
+      } else {
+        console.log('Afternoon sunlight notification not scheduled:', {
+          isPossible: optimalTimes.afternoon.possible,
+          plannedTime: format(optimalTimes.afternoon.start, 'h:mm a'),
+          sunset: format(new Date(sunTimes.sunset), 'h:mm a')
+        });
       }
     }
   };
