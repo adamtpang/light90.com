@@ -183,43 +183,48 @@ const App: React.FC = () => {
   const isAndroid = /Android/.test(navigator.userAgent);
   const isMobileDevice = isIOS || isAndroid;
 
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+  // API URL
+  const API_URL = process.env.REACT_APP_API_URL;
+  console.log('Using API URL:', API_URL);
 
+  // Connect to WHOOP
   const connectWhoop = () => {
+    console.log('Connecting to WHOOP...');
     window.location.href = `${API_URL}/auth/whoop`;
   };
 
   useEffect(() => {
     const checkAuth = async () => {
       try {
+        console.log('Checking auth status at:', `${API_URL}/auth/status`);
         const response = await fetch(`${API_URL}/auth/status`, {
-          credentials: 'include'
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
         });
+
+        console.log('Auth response status:', response.status);
         const data = await response.json();
+        console.log('Auth data:', data);
 
         if (data.authenticated) {
-          console.log('Auth data:', {
-            authenticated: data.authenticated,
-            user: data.user,
-            profile: data.user?.profile,
-            sleepRecords: data.user?.profile?.records
-          });
           setUser(data.user);
           if (data.user?.profile?.records) {
-            const mainSleepRecords = data.user.profile.records
-              .filter((record: any) => !record.nap)
-              .sort((a: any, b: any) => new Date(b.end).getTime() - new Date(a.end).getTime());
-            setSleepData(mainSleepRecords);
+            console.log('User has sleep records:', data.user.profile.records.length);
           }
         }
       } catch (error) {
         console.error('Auth check failed:', error);
-        setError('Failed to check authentication status');
+        setError(error instanceof Error ? error.message : 'Failed to check authentication');
+      } finally {
+        setLoading(false);
       }
     };
 
     checkAuth();
-  }, []);
+  }, [API_URL]);
 
   // Handle PWA install prompt
   useEffect(() => {
