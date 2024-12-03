@@ -47,7 +47,10 @@ import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import LaptopIcon from '@mui/icons-material/Laptop';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import TimelineIcon from '@mui/icons-material/Timeline';
-import { format, addMinutes, differenceInMinutes, subDays } from 'date-fns';
+import PhoneIphoneIcon from '@mui/icons-material/PhoneIphone';
+import AddToHomeScreenIcon from '@mui/icons-material/AddToHomeScreen';
+import ShareIcon from '@mui/icons-material/Share';
+import { format, addMinutes, differenceInMinutes, subDays, formatDistanceToNow, formatDistanceToNowStrict } from 'date-fns';
 import { getTimes } from 'suncalc';
 
 const theme = createTheme({
@@ -114,12 +117,22 @@ const App: React.FC = () => {
     sunlight: number | null;
     coffee: number | null;
   }>({ sunlight: null, coffee: null });
-  const isMobile = useMediaQuery('(max-width:600px)');
+  const isSmallScreen = useMediaQuery('(max-width:600px)');
   const [showAlert, setShowAlert] = useState<{show: boolean; type: 'sunlight' | 'coffee' | null; message: string}>({
     show: false,
     type: null,
     message: ''
   });
+  const [nextAlerts, setNextAlerts] = useState<{
+    sunlight: Date | null;
+    coffee: Date | null;
+  }>({ sunlight: null, coffee: null });
+  const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isAndroid = /Android/.test(navigator.userAgent);
+  const isMobileDevice = isIOS || isAndroid;
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
@@ -161,10 +174,14 @@ const App: React.FC = () => {
 
   // Handle PWA install prompt
   useEffect(() => {
-    window.addEventListener('beforeinstallprompt', (e) => {
+    const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
-      setInstallPrompt(e);
-    });
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   }, []);
 
   useEffect(() => {
@@ -263,16 +280,17 @@ const App: React.FC = () => {
         message: `${messages[type].title} ${messages[type].body}`
       });
 
-      // Play notification sound
+      // Play looping notification sound
+      if (audioRef) {
+        audioRef.pause();
+        audioRef.currentTime = 0;
+      }
       const audio = new Audio('/notification.wav');
+      audio.loop = true;
+      setAudioRef(audio);
       audio.play().catch(error => {
         console.error('Error playing notification sound:', error);
       });
-
-      // Auto-hide alert after 10 seconds
-      setTimeout(() => {
-        setShowAlert({ show: false, type: null, message: '' });
-      }, 10000);
 
     } catch (error) {
       console.error('Error sending notification:', error);
@@ -366,9 +384,14 @@ const App: React.FC = () => {
   };
 
   const handleInstallClick = async () => {
-    if (installPrompt) {
-      await installPrompt.prompt();
-      setInstallPrompt(null);
+    if (!deferredPrompt) return;
+
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+      setIsInstallable(false);
     }
   };
 
@@ -384,7 +407,7 @@ const App: React.FC = () => {
     }
   };
 
-  // Adjust sunrise time by -30 minutes for Guam
+  // Adjust sunrise time by -30 minutes for first 30 minutes of sunlight
   const adjustSunriseTime = (sunriseTime: Date) => {
     return new Date(sunriseTime.getTime() - 30 * 60 * 1000); // subtract 30 minutes
   };
@@ -471,6 +494,82 @@ const App: React.FC = () => {
     audio.load();
   }, []);
 
+  // Calculate average wake time from last 7 days
+  const calculateAverageWakeTime = React.useCallback(() => {
+    if (!user?.profile?.records || user.profile.records.length === 0) return null;
+
+    const last7Days = user.profile.records.slice(0, 7);
+    const totalMs = last7Days.reduce((sum, record) => {
+      const wakeTime = new Date(record.end);
+      const wakeHours = wakeTime.getHours();
+      const wakeMinutes = wakeTime.getMinutes();
+      return sum + (wakeHours * 60 + wakeMinutes) * 60 * 1000;
+    }, 0);
+
+    const avgMs = totalMs / last7Days.length;
+    const now = new Date();
+    const avgWakeTime = new Date(now.setHours(0, 0, 0, 0) + avgMs);
+
+    return avgWakeTime;
+  }, [user?.profile?.records]);
+
+  // Update next alert times
+  useEffect(() => {
+    const avgWakeTime = calculateAverageWakeTime();
+    if (!avgWakeTime || !sunTimes?.sunrise) return;
+
+    const adjustedSunrise = adjustSunriseTime(new Date(sunTimes.sunrise));
+    const now = new Date();
+    let nextSunrise = adjustedSunrise;
+    let nextCoffee = new Date(avgWakeTime.getTime() + 90 * 60 * 1000); // 90 minutes after wake
+
+    // If today's times have passed, set for tomorrow
+    if (nextSunrise < now) {
+      nextSunrise = new Date(nextSunrise.setDate(nextSunrise.getDate() + 1));
+    }
+    if (nextCoffee < now) {
+      nextCoffee = new Date(nextCoffee.setDate(nextCoffee.getDate() + 1));
+    }
+
+    setNextAlerts({
+      sunlight: nextSunrise,
+      coffee: nextCoffee
+    });
+  }, [sunTimes, calculateAverageWakeTime]);
+
+  // Format countdown with minutes and seconds
+  const formatCountdown = (date: Date | null) => {
+    if (!date) return 'Calculating...';
+
+    const now = new Date();
+    const diffMs = date.getTime() - now.getTime();
+    if (diffMs < 0) return 'Due now';
+
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
+
+    return `${hours}h ${minutes}m ${seconds}s`;
+  };
+
+  // Update countdown every second instead of every minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNextAlerts(prev => ({ ...prev }));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Stop sound when alert is dismissed
+  const handleAlertClose = () => {
+    if (audioRef) {
+      audioRef.pause();
+      audioRef.currentTime = 0;
+      setAudioRef(null);
+    }
+    setShowAlert({ show: false, type: null, message: '' });
+  };
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -488,7 +587,7 @@ const App: React.FC = () => {
               maxWidth: 600,
               boxShadow: 3
             }}
-            onClose={() => setShowAlert({ show: false, type: null, message: '' })}
+            onClose={handleAlertClose}
           >
             {showAlert.message}
           </Alert>
@@ -498,7 +597,7 @@ const App: React.FC = () => {
             <Card>
               <CardContent>
                 <Typography variant="h5" gutterBottom>
-                  Welcome to Light90
+                  Welcome to light90.com
                 </Typography>
                 <Typography variant="body1" paragraph>
                   Optimize your sunlight exposure and coffee timing for better energy and sleep.
@@ -523,22 +622,6 @@ const App: React.FC = () => {
 
                 {user && (
                   <>
-                    <Typography variant="h6" gutterBottom>
-                      What to Expect
-                    </Typography>
-                    <Box sx={{ pl: 2, mb: 3 }}>
-                      <Typography variant="body1" sx={{ mb: 2 }}>
-                        Based on your WHOOP wake-up time, Light90 will notify you:
-                      </Typography>
-                      <Typography variant="body1" sx={{ mb: 1, display: 'flex', alignItems: 'center' }}>
-                        <WbSunnyIcon sx={{ mr: 1 }} />
-                        When to get your morning sunlight
-                      </Typography>
-                      <Typography variant="body1" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
-                        <CoffeeIcon sx={{ mr: 1 }} />
-                        When to have your first cup of coffee
-                      </Typography>
-                    </Box>
 
                     <Divider sx={{ my: 2 }} />
 
@@ -625,7 +708,7 @@ const App: React.FC = () => {
                               <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                                 <WbSunnyIcon sx={{ mr: 1 }} />
                                 <Typography variant="body2" color="text.secondary">
-                                  Sunrise: {formatTimeIfValid(sunrise)} (adjusted for Guam)
+                                  Sunrise: {formatTimeIfValid(sunrise)} (adjusted for first light)
                                 </Typography>
                               </Box>
                               <Box sx={{ borderLeft: '2px solid #ffd700', pl: 2, ml: 1 }}>
@@ -674,6 +757,104 @@ const App: React.FC = () => {
                             </Box>
                           );
                         })()}
+                      </>
+                    )}
+
+                    {user?.profile?.records && user.profile.records.length > 0 && (
+                      <>
+                        <Divider sx={{ my: 2 }} />
+                        <Typography variant="h6" gutterBottom>
+                          Estimated Next Alerts
+                        </Typography>
+                        <Box sx={{ pl: 2, mb: 3 }}>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            Sunlight alert is based on local sunrise time (adjusted earlier to catch the first light). Coffee alert is based on your average wake time from the last 7 days.
+                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                            <WbSunnyIcon sx={{ mr: 1 }} />
+                            <Typography variant="body2">
+                              Sunlight alert: {nextAlerts.sunlight ? (
+                                <>
+                                  {format(nextAlerts.sunlight, 'h:mm a')} (in {formatCountdown(nextAlerts.sunlight)})
+                                  <Typography variant="caption" display="block" color="text.secondary">
+                                    Based on sunrise at {sunTimes?.sunrise ? format(new Date(sunTimes.sunrise), 'h:mm a') : '...'} (adjusted 30min earlier for first light)
+                                  </Typography>
+                                </>
+                              ) : 'Calculating...'}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                            <CoffeeIcon sx={{ mr: 1 }} />
+                            <Typography variant="body2">
+                              Coffee alert: {nextAlerts.coffee ? (
+                                <>
+                                  {format(nextAlerts.coffee, 'h:mm a')} (in {formatCountdown(nextAlerts.coffee)})
+                                  <Typography variant="caption" display="block" color="text.secondary">
+                                    Based on average wake time from last {Math.min(7, user?.profile?.records?.length || 0)} days + 90min
+                                  </Typography>
+                                </>
+                              ) : 'Calculating...'}
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </>
+                    )}
+
+                    {isMobileDevice && (
+                      <>
+                        <Divider sx={{ my: 2 }} />
+                        <Typography variant="h6" gutterBottom>
+                          <PhoneIphoneIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+                          Get Mobile Notifications
+                        </Typography>
+                        <Box sx={{ pl: 2, mb: 3 }}>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            For the best experience with notifications, add Light90 to your home screen:
+                          </Typography>
+
+                          {isIOS ? (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                              <Typography variant="body2">
+                                1. Tap the <ShareIcon sx={{ verticalAlign: 'middle', width: 20, height: 20 }} /> Share button
+                              </Typography>
+                              <Typography variant="body2">
+                                2. Scroll down and tap "Add to Home Screen"
+                              </Typography>
+                              <Typography variant="body2">
+                                3. Tap "Add" in the top right
+                              </Typography>
+                            </Box>
+                          ) : isAndroid ? (
+                            <>
+                              {isInstallable ? (
+                                <Button
+                                  variant="outlined"
+                                  startIcon={<AddToHomeScreenIcon />}
+                                  onClick={handleInstallClick}
+                                  sx={{ mb: 2 }}
+                                >
+                                  Add to Home Screen
+                                </Button>
+                              ) : (
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                  <Typography variant="body2">
+                                    1. Tap the three dots menu (⋮) in Chrome
+                                  </Typography>
+                                  <Typography variant="body2">
+                                    2. Tap "Add to Home screen"
+                                  </Typography>
+                                  <Typography variant="body2">
+                                    3. Tap "Add" when prompted
+                                  </Typography>
+                                </Box>
+                              )}
+                            </>
+                          ) : null}
+
+                          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                            Once added, Light90 will work like a native app with full notification support.
+                          </Typography>
+                        </Box>
                       </>
                     )}
                   </>
