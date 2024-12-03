@@ -5,6 +5,8 @@ const passport = require('passport');
 const session = require('express-session');
 const OAuth2Strategy = require('passport-oauth2');
 const axios = require('axios');
+const cron = require('node-cron');
+const { getTimes } = require('suncalc');
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -330,44 +332,38 @@ app.get('/auth/whoop/callback',
 app.get('/api/v1/sleep', async (req, res) => {
   try {
     if (!req.isAuthenticated()) {
+      console.log('Sleep endpoint: User not authenticated');
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const { start_date, end_date } = req.query;
-    console.log('Fetching sleep data...', { start_date, end_date });
-
-    const response = await axios.get('https://api.prod.whoop.com/developer/v1/activity/sleep', {
-      headers: {
-        'Authorization': `Bearer ${req.user.accessToken}`,
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'api-version': '2',
-        'User-Agent': 'Light90/1.0.0',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
+    console.log('Sleep endpoint request:', {
+      user: {
+        id: req.user?.profile?.user_id,
+        hasProfile: !!req.user?.profile,
+        hasRecords: !!req.user?.profile?.records,
+        recordCount: req.user?.profile?.records?.length
       },
-      params: {
-        start_date,
-        end_date
-      }
+      query: req.query
     });
 
-    console.log('Sleep data fetched:', {
-      records: response.data?.records?.length || 0,
-      cycles: response.data?.cycles?.length || 0,
-      data: JSON.stringify(response.data, null, 2)
-    });
-    res.json(response.data);
+    // Use the sleep data from the user's profile
+    if (req.user.profile && req.user.profile.records) {
+      console.log('Sleep endpoint: Using profile data', {
+        recordCount: req.user.profile.records.length,
+        firstRecord: req.user.profile.records[0],
+        lastRecord: req.user.profile.records[req.user.profile.records.length - 1]
+      });
+
+      return res.json({
+        records: req.user.profile.records
+      });
+    }
+
+    console.log('Sleep endpoint: No records found in profile');
+    return res.status(404).json({ error: 'No sleep data available' });
   } catch (error) {
-    console.error('Error fetching sleep data:', {
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      data: error.response?.data,
-      message: error.message
-    });
-    res.status(error.response?.status || 500).json({
-      error: error.response?.data?.message || error.message
-    });
+    console.error('Sleep endpoint error:', error);
+    res.status(500).json({ error: 'Failed to fetch sleep data' });
   }
 });
 
@@ -403,6 +399,102 @@ app.get('/api/v1/profile', async (req, res) => {
       error: error.response?.data?.message || error.message
     });
   }
+});
+
+// Function to calculate notification times for a user
+const calculateNotificationTimes = async (user) => {
+  try {
+    // Get user's latest sleep data
+    const response = await axios.get('https://api.prod.whoop.com/developer/v1/cycle/sleep', {
+      headers: {
+        'Authorization': `Bearer ${user.tokenParams.access_token}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'api-version': '2'
+      }
+    });
+
+    if (response.data?.records?.[0]) {
+      const latestSleep = response.data.records[0];
+      const wakeTime = new Date(latestSleep.end);
+
+      // Calculate optimal times
+      const sunlightTime = new Date(wakeTime);
+      sunlightTime.setMinutes(sunlightTime.getMinutes() + 15); // 15 minutes after waking
+
+      const coffeeTime = new Date(wakeTime);
+      coffeeTime.setMinutes(coffeeTime.getMinutes() + 90); // 90 minutes after waking
+
+      return {
+        sunlightTime,
+        coffeeTime
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('Error calculating notification times:', error);
+    return null;
+  }
+};
+
+// Schedule notifications for all users
+const scheduleNotifications = async () => {
+  try {
+    // Get all active users (you'll need to implement user storage)
+    const users = await User.find({ active: true }); // This is pseudocode - implement your user storage
+
+    for (const user of users) {
+      const times = await calculateNotificationTimes(user);
+      if (times) {
+        // Schedule notifications for this user
+        console.log(`Scheduled notifications for user ${user.id}:`, times);
+      }
+    }
+  } catch (error) {
+    console.error('Error scheduling notifications:', error);
+  }
+};
+
+// Run every day at midnight
+cron.schedule('0 0 * * *', async () => {
+  console.log('Running daily notification scheduling...');
+  await scheduleNotifications();
+});
+
+// Run every hour to check for any missed notifications or updates
+cron.schedule('0 * * * *', async () => {
+  console.log('Running hourly notification check...');
+  await scheduleNotifications();
+});
+
+// Add status endpoint to check scheduling
+app.get('/api/v1/schedule/status', (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+
+  // Return next scheduled notification times for the user
+  calculateNotificationTimes(req.user)
+    .then(times => {
+      if (times) {
+        res.json({
+          status: 'active',
+          nextSunlightNotification: times.sunlightTime,
+          nextCoffeeNotification: times.coffeeTime
+        });
+      } else {
+        res.json({
+          status: 'pending',
+          message: 'Waiting for sleep data'
+        });
+      }
+    })
+    .catch(error => {
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to calculate notification times'
+      });
+    });
 });
 
 // Error handling

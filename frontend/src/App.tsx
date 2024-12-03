@@ -22,7 +22,10 @@ import {
   IconButton,
   Tooltip,
   Grid,
-  CircularProgress
+  CircularProgress,
+  Divider,
+  Alert,
+  AlertTitle
 } from '@mui/material';
 import {
   LineChart,
@@ -42,9 +45,10 @@ import CoffeeIcon from '@mui/icons-material/Coffee';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import LaptopIcon from '@mui/icons-material/Laptop';
+import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
+import TimelineIcon from '@mui/icons-material/Timeline';
 import { format, addMinutes, differenceInMinutes, subDays } from 'date-fns';
 import { getTimes } from 'suncalc';
-import './App.css';
 
 const theme = createTheme({
   palette: {
@@ -63,15 +67,37 @@ const theme = createTheme({
 });
 
 interface SleepData {
-  start_time: string;
-  end_time: string;
-  score: number;
+  id: number;
+  user_id: number;
+  start: string;
+  end: string;
+  score: {
+    sleep_performance_percentage: number;
+    stage_summary: {
+      total_in_bed_time_milli: number;
+      total_awake_time_milli: number;
+      total_light_sleep_time_milli: number;
+      total_slow_wave_sleep_time_milli: number;
+      total_rem_sleep_time_milli: number;
+      sleep_cycle_count: number;
+    };
+  };
 }
 
 interface VitalUser {
   user_id: string;
   provider: string;
   connected: boolean;
+  profile: {
+    records: SleepData[];
+    next_token: string;
+  };
+  tokenParams: {
+    access_token: string;
+    refresh_token: string;
+    expires_in: number;
+    scope: string;
+  };
 }
 
 const App: React.FC = () => {
@@ -89,6 +115,11 @@ const App: React.FC = () => {
     coffee: number | null;
   }>({ sunlight: null, coffee: null });
   const isMobile = useMediaQuery('(max-width:600px)');
+  const [showAlert, setShowAlert] = useState<{show: boolean; type: 'sunlight' | 'coffee' | null; message: string}>({
+    show: false,
+    type: null,
+    message: ''
+  });
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
@@ -105,8 +136,19 @@ const App: React.FC = () => {
         const data = await response.json();
 
         if (data.authenticated) {
+          console.log('Auth data:', {
+            authenticated: data.authenticated,
+            user: data.user,
+            profile: data.user?.profile,
+            sleepRecords: data.user?.profile?.records
+          });
           setUser(data.user);
-          fetchSleepData();
+          if (data.user?.profile?.records) {
+            const mainSleepRecords = data.user.profile.records
+              .filter((record: any) => !record.nap)
+              .sort((a: any, b: any) => new Date(b.end).getTime() - new Date(a.end).getTime());
+            setSleepData(mainSleepRecords);
+          }
         }
       } catch (error) {
         console.error('Auth check failed:', error);
@@ -116,40 +158,6 @@ const App: React.FC = () => {
 
     checkAuth();
   }, []);
-
-  const fetchSleepData = async () => {
-    if (!user) return;
-    setLoading(true);
-    setError(null);
-
-    try {
-      const endDate = new Date();
-      const startDate = subDays(endDate, 7);
-
-      const response = await fetch(
-        `${API_URL}/api/v1/sleep?start_date=${startDate.toISOString()}&end_date=${endDate.toISOString()}`,
-        {
-          credentials: 'include'
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`Sleep API failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-      setSleepData(data.cycles.map((sleep: any) => ({
-        start_time: sleep.start,
-        end_time: sleep.end,
-        score: Math.round((sleep.score?.quality || 0) * 100)
-      })));
-    } catch (error) {
-      console.error('Error fetching sleep data:', error);
-      setError('Failed to fetch sleep data');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Handle PWA install prompt
   useEffect(() => {
@@ -186,32 +194,100 @@ const App: React.FC = () => {
   // Update countdowns every minute
   useEffect(() => {
     if (sleepData.length > 0 && sunTimes) {
-      const interval = setInterval(() => {
+      const updateCountdowns = () => {
         const now = new Date();
         const optimalTimes = calculateOptimalSunlight();
         const optimalCoffee = calculateOptimalCoffee();
 
         if (optimalTimes && optimalCoffee) {
-          setCountdowns({
-            sunlight: differenceInMinutes(optimalTimes.morning.start, now),
-            coffee: differenceInMinutes(optimalCoffee.start, now)
+          const sunlightDiff = differenceInMinutes(optimalTimes.morning.start, now);
+          const coffeeDiff = differenceInMinutes(optimalCoffee.start, now);
+
+          // Only update if the countdowns have changed
+          setCountdowns(prev => {
+            if (prev.sunlight !== sunlightDiff || prev.coffee !== coffeeDiff) {
+              return {
+                sunlight: sunlightDiff,
+                coffee: coffeeDiff
+              };
+            }
+            return prev;
           });
         }
-      }, 60000);
+      };
 
+      // Initial update
+      updateCountdowns();
+
+      // Update every minute
+      const interval = setInterval(updateCountdowns, 60000);
       return () => clearInterval(interval);
     }
   }, [sleepData, sunTimes]);
 
   const requestNotificationPermission = async () => {
-    if ('Notification' in window) {
+    if (!('Notification' in window)) {
+      console.log('This browser does not support notifications');
+      return 'denied';
+    }
+
+    try {
       const permission = await Notification.requestPermission();
-      setNotificationsEnabled(permission === 'granted');
       if (permission === 'granted') {
-        scheduleNotifications();
+        setNotificationsEnabled(true);
       }
+      return permission;
+    } catch (error) {
+      console.error('Error requesting notification permission:', error);
+      return 'denied';
     }
   };
+
+  const sendTestNotification = async (type: 'sunlight' | 'coffee') => {
+    try {
+      const messages = {
+        sunlight: {
+          title: '☀️ Time for Morning Sunlight!',
+          body: 'Get 10-30 minutes of sunlight now to boost your energy and regulate your sleep cycle.'
+        },
+        coffee: {
+          title: '☕ Perfect Time for Coffee!',
+          body: 'Your cortisol has dropped - this is the optimal time for your first coffee.'
+        }
+      };
+
+      // Show banner alert
+      setShowAlert({
+        show: true,
+        type,
+        message: `${messages[type].title} ${messages[type].body}`
+      });
+
+      // Play notification sound
+      const audio = new Audio('/notification.wav');
+      audio.play().catch(error => {
+        console.error('Error playing notification sound:', error);
+      });
+
+      // Auto-hide alert after 10 seconds
+      setTimeout(() => {
+        setShowAlert({ show: false, type: null, message: '' });
+      }, 10000);
+
+    } catch (error) {
+      console.error('Error sending notification:', error);
+      alert('There was an error sending the notification.');
+    }
+  };
+
+  // Request notification permission when component mounts
+  useEffect(() => {
+    if (Notification.permission === 'granted') {
+      setNotificationsEnabled(true);
+    } else {
+      requestNotificationPermission();
+    }
+  }, []);
 
   const scheduleNotifications = () => {
     if (sleepData.length === 0 || !sunTimes) return;
@@ -296,49 +372,83 @@ const App: React.FC = () => {
     }
   };
 
-  const calculateOptimalSunlight = () => {
+  const formatTimeIfValid = (date: Date | string | null | undefined) => {
+    if (!date) return 'N/A';
+    try {
+      const dateObj = new Date(date);
+      if (isNaN(dateObj.getTime())) return 'N/A';
+      return format(dateObj, 'h:mm a');
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'N/A';
+    }
+  };
+
+  // Adjust sunrise time by -30 minutes for Guam
+  const adjustSunriseTime = (sunriseTime: Date) => {
+    return new Date(sunriseTime.getTime() - 30 * 60 * 1000); // subtract 30 minutes
+  };
+
+  const calculateOptimalSunlight = React.useCallback(() => {
     if (sleepData.length === 0 || !sunTimes) return null;
 
-    const latestSleep = sleepData[0];
-    const wakeTime = new Date(latestSleep.end_time);
-    const sunrise = new Date(sunTimes.sunrise);
-    const sunset = new Date(sunTimes.sunset);
+    try {
+      const latestSleep = sleepData[0];
+      const wakeTime = new Date(latestSleep.end);
+      const sunrise = sunTimes?.sunrise ? adjustSunriseTime(new Date(sunTimes.sunrise)) : null;
+      const sunset = sunTimes?.sunset ? new Date(sunTimes.sunset) : null;
 
-    const morningStart = wakeTime;
-    const morningEnd = addMinutes(wakeTime, 120);
+      if (isNaN(wakeTime.getTime())) return null;
 
-    const nextBedtime = new Date(latestSleep.start_time);
-    nextBedtime.setDate(nextBedtime.getDate() + 1);
-    const afternoonStart = addMinutes(nextBedtime, -360);
-    const afternoonEnd = addMinutes(nextBedtime, -240);
+      const morningStart = wakeTime;
+      const morningEnd = addMinutes(wakeTime, 120);
 
-    return {
-      morning: {
-        start: morningStart,
-        end: morningEnd,
-        possible: morningStart >= sunrise && morningEnd <= sunset
-      },
-      afternoon: {
-        start: afternoonStart,
-        end: afternoonEnd,
-        possible: afternoonStart >= sunrise && afternoonEnd <= sunset
-      }
-    };
-  };
+      const nextBedtime = new Date(latestSleep.start);
+      if (isNaN(nextBedtime.getTime())) return null;
 
-  const calculateOptimalCoffee = () => {
+      nextBedtime.setDate(nextBedtime.getDate() + 1);
+      const afternoonStart = addMinutes(nextBedtime, -360);
+      const afternoonEnd = addMinutes(nextBedtime, -240);
+
+      return {
+        morning: {
+          start: morningStart,
+          end: morningEnd,
+          possible: sunrise && sunset ? morningStart >= sunrise && morningEnd <= sunset : true
+        },
+        afternoon: {
+          start: afternoonStart,
+          end: afternoonEnd,
+          possible: sunrise && sunset ? afternoonStart >= sunrise && afternoonEnd <= sunset : true
+        }
+      };
+    } catch (error) {
+      console.error('Error calculating optimal sunlight:', error);
+      return null;
+    }
+  }, [sleepData, sunTimes]);
+
+  const calculateOptimalCoffee = React.useCallback(() => {
     if (sleepData.length === 0) return null;
 
-    const latestSleep = sleepData[0];
-    const wakeTime = new Date(latestSleep.end_time);
-    const optimalStart = addMinutes(wakeTime, 90);
-    const optimalEnd = addMinutes(wakeTime, 120);
+    try {
+      const latestSleep = sleepData[0];
+      const wakeTime = new Date(latestSleep.end);
 
-    return {
-      start: optimalStart,
-      end: optimalEnd
-    };
-  };
+      if (isNaN(wakeTime.getTime())) return null;
+
+      const optimalStart = addMinutes(wakeTime, 90);
+      const optimalEnd = addMinutes(wakeTime, 120);
+
+      return {
+        start: optimalStart,
+        end: optimalEnd
+      };
+    } catch (error) {
+      console.error('Error calculating optimal coffee time:', error);
+      return null;
+    }
+  }, [sleepData]);
 
   const renderTimeRecommendation = (time: Date) => {
     return format(time, 'h:mm a');
@@ -355,285 +465,223 @@ const App: React.FC = () => {
   const optimalTimes = calculateOptimalSunlight();
   const optimalCoffee = calculateOptimalCoffee();
 
+  // Preload the notification sound
+  useEffect(() => {
+    const audio = new Audio('/notification.wav');
+    audio.load();
+  }, []);
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <Container maxWidth="lg" className="App">
-        <Box sx={{ my: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Card>
-            <CardContent>
-              <Typography variant="h5" gutterBottom>
-                Welcome to Light90
-              </Typography>
-              <Typography variant="body1" paragraph>
-                Optimize your sunlight exposure and coffee timing for better energy and sleep.
-              </Typography>
-              {!user ? (
-                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    onClick={connectWhoop}
-                    startIcon={<WbSunnyIcon />}
-                  >
-                    Connect WHOOP
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    onClick={() => setHowItWorksOpen(true)}
-                  >
-                    How It Works
-                  </Button>
-                </Box>
-              ) : (
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-                  <Typography variant="body2" sx={{ mr: 2, alignSelf: 'center' }}>
-                    Connected to WHOOP
-                  </Typography>
-                </Box>
-              )}
-            </CardContent>
-          </Card>
-
-          {!user ? (
+        {showAlert.show && (
+          <Alert
+            severity="info"
+            sx={{
+              position: 'fixed',
+              top: 20,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 9999,
+              width: '90%',
+              maxWidth: 600,
+              boxShadow: 3
+            }}
+            onClose={() => setShowAlert({ show: false, type: null, message: '' })}
+          >
+            {showAlert.message}
+          </Alert>
+        )}
+        <Box>
+          <Box sx={{ my: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <Card>
               <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Install the App
+                <Typography variant="h5" gutterBottom>
+                  Welcome to Light90
                 </Typography>
-                <Typography variant="body2" paragraph>
-                  Get notifications on your preferred device:
+                <Typography variant="body1" paragraph>
+                  Optimize your sunlight exposure and coffee timing for better energy and sleep.
                 </Typography>
-                <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                  <Tooltip title="Install on Phone">
-                    <span>
-                      <IconButton onClick={handleInstallClick} disabled={!installPrompt}>
-                        <PhoneAndroidIcon />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  <Tooltip title="Enable Desktop Notifications">
-                    <span>
-                      <IconButton onClick={requestNotificationPermission} disabled={notificationsEnabled}>
-                        <LaptopIcon />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
+                  {!user ? (
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      onClick={connectWhoop}
+                      startIcon={<WbSunnyIcon />}
+                    >
+                      Connect WHOOP
+                    </Button>
+                  ) : (
+                    <Alert severity="success" sx={{ width: '100%' }}>
+                      <AlertTitle>Connected to WHOOP</AlertTitle>
+                      We'll analyze your sleep patterns and send you personalized notifications for optimal sunlight and coffee timing.
+                    </Alert>
+                  )}
                 </Box>
+
+                {user && (
+                  <>
+                    <Typography variant="h6" gutterBottom>
+                      What to Expect
+                    </Typography>
+                    <Box sx={{ pl: 2, mb: 3 }}>
+                      <Typography variant="body1" sx={{ mb: 2 }}>
+                        Based on your WHOOP wake-up time, Light90 will notify you:
+                      </Typography>
+                      <Typography variant="body1" sx={{ mb: 1, display: 'flex', alignItems: 'center' }}>
+                        <WbSunnyIcon sx={{ mr: 1 }} />
+                        When to get your morning sunlight
+                      </Typography>
+                      <Typography variant="body1" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
+                        <CoffeeIcon sx={{ mr: 1 }} />
+                        When to have your first cup of coffee
+                      </Typography>
+                    </Box>
+
+                    <Divider sx={{ my: 2 }} />
+
+                    <Typography variant="h6" gutterBottom>
+                      Get Notifications On Your Device
+                    </Typography>
+                    <Typography variant="body2" paragraph>
+                      Choose your preferred device:
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 3 }}>
+                      <Tooltip title="Install on Phone">
+                        <span>
+                          <IconButton onClick={handleInstallClick} disabled={!installPrompt}>
+                            <PhoneAndroidIcon />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                      <Tooltip title="Enable Desktop Notifications">
+                        <span>
+                          <IconButton onClick={requestNotificationPermission} disabled={notificationsEnabled}>
+                            <LaptopIcon />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                      {notificationsEnabled && (
+                        <Typography variant="body2" color="success.main" sx={{ display: 'flex', alignItems: 'center' }}>
+                          <NotificationsActiveIcon sx={{ mr: 1 }} fontSize="small" />
+                          Notifications enabled
+                        </Typography>
+                      )}
+                    </Box>
+
+                    <Divider sx={{ my: 2 }} />
+
+                    <Typography variant="h6" gutterBottom>
+                      Test Notifications
+                    </Typography>
+                    <Typography variant="body2" paragraph>
+                      Try out how the notifications will look:
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+                      <Button
+                        variant="outlined"
+                        startIcon={<WbSunnyIcon />}
+                        onClick={() => sendTestNotification('sunlight')}
+                        disabled={!('Notification' in window)}
+                      >
+                        Test Sunlight Alert
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        startIcon={<CoffeeIcon />}
+                        onClick={() => sendTestNotification('coffee')}
+                        disabled={!('Notification' in window)}
+                      >
+                        Test Coffee Alert
+                      </Button>
+                    </Box>
+
+                    {user?.profile?.records && user.profile.records.length > 0 && (
+                      <>
+                        <Divider sx={{ my: 2 }} />
+                        <Typography variant="h6" gutterBottom>
+                          This Morning's Timeline
+                        </Typography>
+                        {(() => {
+                          const latestSleep = user.profile.records[0];
+                          const wakeTime = new Date(latestSleep.end);
+                          const sunrise = sunTimes?.sunrise ? adjustSunriseTime(new Date(sunTimes.sunrise)) : null;
+                          const now = new Date();
+
+                          // Calculate optimal times
+                          const optimalSunlightTime = sunrise && wakeTime > sunrise ? wakeTime : sunrise;
+                          const optimalCoffeeTime = wakeTime ? addMinutes(wakeTime, 90) : null;
+
+                          return (
+                            <Box sx={{ pl: 2, mb: 3 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                                <BedtimeIcon sx={{ mr: 1 }} />
+                                <Typography variant="body2" color="text.secondary">
+                                  Wake time: {formatTimeIfValid(wakeTime)}
+                                </Typography>
+                              </Box>
+                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                                <WbSunnyIcon sx={{ mr: 1 }} />
+                                <Typography variant="body2" color="text.secondary">
+                                  Sunrise: {formatTimeIfValid(sunrise)} (adjusted for Guam)
+                                </Typography>
+                              </Box>
+                              <Box sx={{ borderLeft: '2px solid #ffd700', pl: 2, ml: 1 }}>
+                                <Box sx={{ position: 'relative', mb: 2 }}>
+                                  <Box sx={{
+                                    width: 12,
+                                    height: 12,
+                                    bgcolor: '#ffd700',
+                                    borderRadius: '50%',
+                                    position: 'absolute',
+                                    left: -27,
+                                    top: 6
+                                  }} />
+                                  <Typography variant="body1" sx={{ mb: 0.5 }}>
+                                    {formatTimeIfValid(optimalSunlightTime)}
+                                  </Typography>
+                                  <Typography variant="body2" color="text.secondary">
+                                    {wakeTime && sunrise && wakeTime > sunrise
+                                      ? "You woke up after sunrise - notification sent immediately to get morning light"
+                                      : "Sunrise notification - optimal time for morning light exposure"}
+                                  </Typography>
+                                </Box>
+                                <Box sx={{ position: 'relative', mb: 2 }}>
+                                  <Box sx={{
+                                    width: 12,
+                                    height: 12,
+                                    bgcolor: '#ffd700',
+                                    borderRadius: '50%',
+                                    position: 'absolute',
+                                    left: -27,
+                                    top: 6
+                                  }} />
+                                  <Typography variant="body1" sx={{ mb: 0.5 }}>
+                                    {formatTimeIfValid(optimalCoffeeTime)}
+                                  </Typography>
+                                  <Typography variant="body2" color="text.secondary">
+                                    Optimal coffee time - cortisol levels have naturally dropped
+                                  </Typography>
+                                </Box>
+                              </Box>
+                              <Typography variant="body2" color="text.secondary" sx={{ mt: 2, fontStyle: 'italic' }}>
+                                {now > wakeTime
+                                  ? "This is what would have happened if Light90 was enabled this morning"
+                                  : "This is what will happen tomorrow morning"}
+                              </Typography>
+                            </Box>
+                          );
+                        })()}
+                      </>
+                    )}
+                  </>
+                )}
               </CardContent>
             </Card>
-          ) : (
-            <>
-              {error && (
-                <Paper sx={{ p: 2, bgcolor: 'error.dark' }}>
-                  <Typography color="error">{error}</Typography>
-                </Paper>
-              )}
-
-              {loading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-                  <CircularProgress />
-                </Box>
-              ) : (
-                <>
-                  {sleepData.length > 0 && (
-                    <>
-                      <Card>
-                        <CardContent>
-                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                            <BedtimeIcon sx={{ mr: 1 }} />
-                            <Typography variant="h6">Sleep Schedule</Typography>
-                          </Box>
-                          <Typography variant="body1">
-                            Last night's sleep: {format(new Date(sleepData[0].start_time), 'h:mm a')} - {format(new Date(sleepData[0].end_time), 'h:mm a')}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Sleep quality score: {sleepData[0].score}%
-                          </Typography>
-                        </CardContent>
-                      </Card>
-
-                      <Grid container spacing={3} sx={{ mt: 2 }}>
-                        <Grid item xs={12} md={6}>
-                          <Card>
-                            <CardContent>
-                              <Typography variant="h6" gutterBottom>
-                                Sleep Quality Trend
-                              </Typography>
-                              <ResponsiveContainer width="100%" height={300}>
-                                <AreaChart data={sleepData.slice().reverse()}>
-                                  <CartesianGrid strokeDasharray="3 3" />
-                                  <XAxis
-                                    dataKey="start_time"
-                                    tickFormatter={(time) => format(new Date(time), 'MMM d')}
-                                  />
-                                  <YAxis domain={[0, 100]} />
-                                  <RechartsTooltip
-                                    formatter={(value: number) => [`${value}%`, 'Sleep Quality']}
-                                    labelFormatter={(time) => format(new Date(time), 'MMM d, yyyy')}
-                                  />
-                                  <Area
-                                    type="monotone"
-                                    dataKey="score"
-                                    stroke="#ffd700"
-                                    fill="#ffd700"
-                                    fillOpacity={0.3}
-                                  />
-                                </AreaChart>
-                              </ResponsiveContainer>
-                            </CardContent>
-                          </Card>
-                        </Grid>
-
-                        <Grid item xs={12} md={6}>
-                          <Card>
-                            <CardContent>
-                              <Typography variant="h6" gutterBottom>
-                                Wake Time Pattern
-                              </Typography>
-                              <ResponsiveContainer width="100%" height={300}>
-                                <LineChart data={sleepData.slice().reverse()}>
-                                  <CartesianGrid strokeDasharray="3 3" />
-                                  <XAxis
-                                    dataKey="end_time"
-                                    tickFormatter={(time) => format(new Date(time), 'MMM d')}
-                                  />
-                                  <YAxis
-                                    tickFormatter={(time) => format(new Date(time), 'h:mm a')}
-                                    domain={['dataMin', 'dataMax']}
-                                  />
-                                  <RechartsTooltip
-                                    labelFormatter={(time) => format(new Date(time), 'MMM d, yyyy')}
-                                    formatter={(value: string) => [format(new Date(value), 'h:mm a'), 'Wake Time']}
-                                  />
-                                  <Line
-                                    type="monotone"
-                                    dataKey="end_time"
-                                    stroke="#ffd700"
-                                    dot={{ fill: '#ffd700' }}
-                                  />
-                                </LineChart>
-                              </ResponsiveContainer>
-                            </CardContent>
-                          </Card>
-                        </Grid>
-                      </Grid>
-
-                      <Card sx={{ mt: 2 }}>
-                        <CardContent>
-                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                            <WbSunnyIcon sx={{ mr: 1 }} />
-                            <Typography variant="h6">Morning Sunlight</Typography>
-                          </Box>
-                          <Typography variant="body1">
-                            {optimalTimes?.morning.possible ? (
-                              `Get 10-30 minutes of sunlight between ${renderTimeRecommendation(optimalTimes.morning.start)} and ${renderTimeRecommendation(optimalTimes.morning.end)}`
-                            ) : (
-                              'Not possible due to sunrise/sunset times'
-                            )}
-                          </Typography>
-                          {countdowns.sunlight !== null && (
-                            <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
-                              Time until sunlight: {renderCountdown(countdowns.sunlight)}
-                            </Typography>
-                          )}
-                        </CardContent>
-                      </Card>
-
-                      <Card sx={{ mt: 2 }}>
-                        <CardContent>
-                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                            <CoffeeIcon sx={{ mr: 1 }} />
-                            <Typography variant="h6">Optimal Coffee Time</Typography>
-                          </Box>
-                          <Typography variant="body1">
-                            {optimalCoffee ? (
-                              `Wait until ${renderTimeRecommendation(optimalCoffee.start)} (${renderCountdown(countdowns.coffee)} from now)`
-                            ) : (
-                              'Calculating...'
-                            )}
-                          </Typography>
-                          {countdowns.coffee !== null && (
-                            <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
-                              Time until coffee: {renderCountdown(countdowns.coffee)}
-                            </Typography>
-                          )}
-                        </CardContent>
-                      </Card>
-
-                      <Card>
-                        <CardContent>
-                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                            <WbSunnyIcon sx={{ mr: 1 }} />
-                            <Typography variant="h6">Afternoon Sunlight</Typography>
-                          </Box>
-                          <Typography variant="body1">
-                            {optimalTimes?.afternoon.possible ? (
-                              `Get 10-30 minutes of sunlight between ${renderTimeRecommendation(optimalTimes.afternoon.start)} and ${renderTimeRecommendation(optimalTimes.afternoon.end)}`
-                            ) : (
-                              'Not possible due to sunrise/sunset times'
-                            )}
-                          </Typography>
-                        </CardContent>
-                      </Card>
-                    </>
-                  )}
-                </>
-              )}
-            </>
-          )}
+          </Box>
         </Box>
-
-        <Dialog
-          open={howItWorksOpen}
-          onClose={() => setHowItWorksOpen(false)}
-          maxWidth="sm"
-          fullWidth
-        >
-          <DialogTitle>How It Works</DialogTitle>
-          <DialogContent>
-            <Stepper orientation="vertical">
-              <Step active={true}>
-                <StepLabel>Connect Your WHOOP</StepLabel>
-                <StepContent>
-                  <Typography>
-                    Light90 uses your WHOOP sleep data to know exactly when you wake up,
-                    helping time your sunlight and coffee perfectly each day.
-                  </Typography>
-                </StepContent>
-              </Step>
-              <Step active={true}>
-                <StepLabel>Get Smart Notifications</StepLabel>
-                <StepContent>
-                  <Typography>
-                    Choose how you want to be notified:
-                    <ul>
-                      <li>Install as a mobile app for push notifications</li>
-                      <li>Enable desktop notifications in your browser</li>
-                    </ul>
-                    We'll alert you at the optimal times for sunlight and coffee.
-                  </Typography>
-                </StepContent>
-              </Step>
-              <Step active={true}>
-                <StepLabel>Follow Your Personalized Schedule</StepLabel>
-                <StepContent>
-                  <Typography>
-                    Based on your wake time and local sunrise:
-                    <ul>
-                      <li>Get morning sunlight within 2 hours of waking</li>
-                      <li>Wait 90 minutes after waking for coffee</li>
-                      <li>Get afternoon sunlight 4-6 hours before bedtime</li>
-                    </ul>
-                  </Typography>
-                </StepContent>
-              </Step>
-            </Stepper>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setHowItWorksOpen(false)}>Close</Button>
-          </DialogActions>
-        </Dialog>
       </Container>
     </ThemeProvider>
   );
