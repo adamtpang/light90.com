@@ -118,7 +118,11 @@ const App: React.FC = () => {
     coffee: number | null;
   }>({ sunlight: null, coffee: null });
   const isSmallScreen = useMediaQuery('(max-width:600px)');
-  const [showAlert, setShowAlert] = useState<{show: boolean; type: 'sunlight' | 'coffee' | null; message: string}>({
+  const [showAlert, setShowAlert] = useState<{
+    show: boolean;
+    type: 'sunlight' | 'coffee' | 'info' | null;
+    message: string;
+  }>({
     show: false,
     type: null,
     message: ''
@@ -273,7 +277,17 @@ const App: React.FC = () => {
         }
       };
 
-      // Show banner alert
+      // Show countdown message
+      setShowAlert({
+        show: true,
+        type: 'info',
+        message: 'Test notification will appear in 10 seconds. Try turning off your screen to test if notifications work while your phone is locked!'
+      });
+
+      // Wait 10 seconds
+      await new Promise(resolve => setTimeout(resolve, 10000));
+
+      // Show the actual notification
       setShowAlert({
         show: true,
         type,
@@ -660,25 +674,34 @@ const App: React.FC = () => {
                       Test Notifications
                     </Typography>
                     <Typography variant="body2" paragraph>
-                      Try out how the notifications will look:
+                      Test the notifications to make sure they work on your device:
                     </Typography>
-                    <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-                      <Button
-                        variant="outlined"
-                        startIcon={<WbSunnyIcon />}
-                        onClick={() => sendTestNotification('sunlight')}
-                        disabled={!('Notification' in window)}
-                      >
-                        Test Sunlight Alert
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        startIcon={<CoffeeIcon />}
-                        onClick={() => sendTestNotification('coffee')}
-                        disabled={!('Notification' in window)}
-                      >
-                        Test Coffee Alert
-                      </Button>
+                    <Box sx={{ pl: 2, mb: 3 }}>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        1. Press one of the test buttons below
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        2. When you see the countdown message, turn off your screen
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        3. Wait for the notification (10 seconds) - it should wake your device!
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
+                        <Button
+                          variant="outlined"
+                          startIcon={<WbSunnyIcon />}
+                          onClick={() => sendTestNotification('sunlight')}
+                        >
+                          Test Sunlight Alert
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          startIcon={<CoffeeIcon />}
+                          onClick={() => sendTestNotification('coffee')}
+                        >
+                          Test Coffee Alert
+                        </Button>
+                      </Box>
                     </Box>
 
                     {user?.profile?.records && user.profile.records.length > 0 && (
