@@ -25,7 +25,8 @@ import {
   CircularProgress,
   Divider,
   Alert,
-  AlertTitle
+  AlertTitle,
+  Switch
 } from '@mui/material';
 import {
   LineChart,
@@ -53,18 +54,63 @@ import ShareIcon from '@mui/icons-material/Share';
 import { format, addMinutes, differenceInMinutes, subDays, formatDistanceToNow, formatDistanceToNowStrict } from 'date-fns';
 import { getTimes } from 'suncalc';
 
+// Custom theme with light90 colors
 const theme = createTheme({
   palette: {
-    mode: 'dark',
     primary: {
-      main: '#ffd700',
+      main: '#FF9933', // Orange from light90 logo
+      light: '#FFB366',
+      dark: '#CC7A29',
     },
     secondary: {
-      main: '#6d4c41',
+      main: '#FFD700', // Yellow from light90 logo
+      light: '#FFE14D',
+      dark: '#CCAC00',
+      contrastText: '#000000', // Ensure text is always black on yellow
     },
     background: {
-      default: '#121212',
-      paper: '#1e1e1e',
+      default: '#FAFAFA',
+      paper: '#FFFFFF',
+    },
+  },
+  typography: {
+    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
+    h4: {
+      fontWeight: 700,
+      letterSpacing: '-0.02em',
+    },
+    h6: {
+      fontWeight: 600,
+      letterSpacing: '-0.01em',
+    },
+  },
+  shape: {
+    borderRadius: 12,
+  },
+  components: {
+    MuiCard: {
+      styleOverrides: {
+        root: {
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)',
+          border: '1px solid rgba(0, 0, 0, 0.05)',
+        },
+      },
+    },
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          textTransform: 'none',
+          fontWeight: 600,
+          borderRadius: '8px',
+          padding: '10px 20px',
+        },
+        outlined: {
+          borderWidth: '2px',
+          '&:hover': {
+            borderWidth: '2px',
+          },
+        },
+      },
     },
   },
 });
@@ -111,22 +157,21 @@ const App: React.FC = () => {
   const [location, setLocation] = useState<{ lat: number; lon: number } | null>(null);
   const [sunTimes, setSunTimes] = useState<any>(null);
   const [howItWorksOpen, setHowItWorksOpen] = useState(false);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(() => {
+    return Notification.permission === 'granted';
+  });
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [countdowns, setCountdowns] = useState<{
     sunlight: number | null;
     coffee: number | null;
   }>({ sunlight: null, coffee: null });
   const isSmallScreen = useMediaQuery('(max-width:600px)');
-  const [showAlert, setShowAlert] = useState<{
-    show: boolean;
+  const [alerts, setAlerts] = useState<Array<{
+    id: string;
     type: 'sunlight' | 'coffee' | 'info' | null;
     message: string;
-  }>({
-    show: false,
-    type: null,
-    message: ''
-  });
+    audio?: HTMLAudioElement;
+  }>>([]);
   const [nextAlerts, setNextAlerts] = useState<{
     sunlight: Date | null;
     coffee: Date | null;
@@ -266,6 +311,11 @@ const App: React.FC = () => {
 
   const sendTestNotification = async (type: 'sunlight' | 'coffee') => {
     try {
+      if (!notificationsEnabled) {
+        addAlert('info', 'Please enable notifications in the settings below first.');
+        return;
+      }
+
       const messages = {
         sunlight: {
           title: '☀️ Time for Morning Sunlight!',
@@ -278,38 +328,50 @@ const App: React.FC = () => {
       };
 
       // Show countdown message
-      setShowAlert({
-        show: true,
-        type: 'info',
-        message: 'Test notification will appear in 10 seconds. Try turning off your screen to test if notifications work while your phone is locked!'
-      });
+      const countdownId = addAlert(
+        'info',
+        'Test notification will appear in 10 seconds. Try turning off your screen to test if notifications work while your phone is locked!'
+      );
 
       // Wait 10 seconds
       await new Promise(resolve => setTimeout(resolve, 10000));
 
-      // Show the actual notification
-      setShowAlert({
-        show: true,
-        type,
-        message: `${messages[type].title} ${messages[type].body}`
-      });
+      // Remove countdown message and show actual alert
+      removeAlert(countdownId);
 
-      // Play looping notification sound
-      if (audioRef) {
-        audioRef.pause();
-        audioRef.currentTime = 0;
-      }
+      // Create and play looping audio
       const audio = new Audio('/notification.wav');
       audio.loop = true;
-      setAudioRef(audio);
-      audio.play().catch(error => {
+      await audio.play().catch(error => {
         console.error('Error playing notification sound:', error);
       });
 
+      // Add the actual notification with its audio
+      addAlert(type, `${messages[type].title} ${messages[type].body}`, audio);
+
     } catch (error) {
       console.error('Error sending notification:', error);
-      alert('There was an error sending the notification.');
+      addAlert('info', 'There was an error sending the notification.');
     }
+  };
+
+  // Helper function to add a new alert
+  const addAlert = (type: 'sunlight' | 'coffee' | 'info' | null, message: string, audio?: HTMLAudioElement) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    setAlerts(prev => [...prev, { id, type, message, audio }]);
+    return id;
+  };
+
+  // Helper function to remove an alert
+  const removeAlert = (id: string) => {
+    setAlerts(prev => {
+      const alertToRemove = prev.find(alert => alert.id === id);
+      if (alertToRemove?.audio) {
+        alertToRemove.audio.pause();
+        alertToRemove.audio.currentTime = 0;
+      }
+      return prev.filter(alert => alert.id !== id);
+    });
   };
 
   // Request notification permission when component mounts
@@ -581,262 +643,288 @@ const App: React.FC = () => {
       audioRef.currentTime = 0;
       setAudioRef(null);
     }
-    setShowAlert({ show: false, type: null, message: '' });
+    setAlerts(prev => {
+      const alertToRemove = prev.find(alert => alert.id === 'info');
+      if (alertToRemove?.audio) {
+        alertToRemove.audio.pause();
+        alertToRemove.audio.currentTime = 0;
+      }
+      return prev.filter(alert => alert.id !== 'info');
+    });
   };
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <Container maxWidth="lg" className="App">
-        {showAlert.show && (
-          <Alert
-            severity="info"
-            sx={{
-              position: 'fixed',
-              top: 20,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              zIndex: 9999,
-              width: '90%',
-              maxWidth: 600,
-              boxShadow: 3
-            }}
-            onClose={handleAlertClose}
-          >
-            {showAlert.message}
-          </Alert>
-        )}
-        <Box>
-          <Box sx={{ my: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <Container
+        maxWidth={false}
+        sx={{
+          backgroundColor: 'background.default',
+          minHeight: '100vh',
+          py: 4,
+        }}
+      >
+        {/* Stack alerts vertically */}
+        <Box sx={{
+          position: 'fixed',
+          top: 20,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: '90%',
+          maxWidth: 600,
+          zIndex: 9999,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 2
+        }}>
+          {alerts.map((alert) => (
+            <Alert
+              key={alert.id}
+              severity="info"
+              sx={{
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)',
+                borderRadius: 2,
+                backgroundColor: '#1976d2',
+                color: 'white',
+                '& .MuiAlert-icon': {
+                  color: 'white'
+                },
+                '& .MuiAlert-action': {
+                  color: 'white'
+                }
+              }}
+              onClose={() => removeAlert(alert.id)}
+            >
+              {alert.message}
+            </Alert>
+          ))}
+        </Box>
+
+        <Container maxWidth="md">
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <Box sx={{ textAlign: 'center', mb: 2 }}>
+              <Typography
+                variant="h4"
+                component="h1"
+                gutterBottom
+                sx={{
+                  color: 'primary.main',
+                  fontSize: { xs: '2rem', sm: '2.5rem' },
+                }}
+              >
+                light90.com
+              </Typography>
+              <Typography
+                variant="h6"
+                component="h2"
+                color="text.secondary"
+                sx={{
+                  fontSize: { xs: '1.1rem', sm: '1.25rem' },
+                  maxWidth: '600px',
+                  mx: 'auto',
+                }}
+              >
+                First light. First coffee.
+              </Typography>
+            </Box>
+
             <Card>
-              <CardContent>
-                <Typography variant="h5" gutterBottom>
-                  Welcome to light90.com
-                </Typography>
-                <Typography variant="body1" paragraph>
-                  Optimize your sunlight exposure and coffee timing for better energy and sleep.
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 3 }}>
-                  {!user ? (
+              <CardContent sx={{ p: { xs: 2, sm: 4 } }}>
+                {!user ? (
+                  <Box sx={{ textAlign: 'center' }}>
                     <Button
                       variant="contained"
                       color="primary"
                       onClick={connectWhoop}
-                      startIcon={<WbSunnyIcon />}
+                      size="large"
+                      sx={{
+                        py: 1.5,
+                        px: 4,
+                        fontSize: '1.1rem',
+                        backgroundColor: 'primary.main',
+                        '&:hover': {
+                          backgroundColor: 'primary.dark',
+                        },
+                      }}
                     >
-                      Connect WHOOP
+                      Connect to WHOOP
                     </Button>
-                  ) : (
-                    <Alert severity="success" sx={{ width: '100%' }}>
-                      <AlertTitle>Connected to WHOOP</AlertTitle>
-                      We'll analyze your sleep patterns and send you personalized notifications for optimal sunlight and coffee timing.
-                    </Alert>
-                  )}
-                </Box>
-
-                {user && (
+                  </Box>
+                ) : (
                   <>
-
-                    <Divider sx={{ my: 2 }} />
-
-                    <Typography variant="h6" gutterBottom>
-                      Get Notifications On Your Device
+                    <Typography variant="h6" gutterBottom sx={{ color: 'primary.main' }}>
+                      What to Expect
                     </Typography>
-                    <Typography variant="body2" paragraph>
-                      Choose your preferred device:
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 3 }}>
-                      <Tooltip title="Install on Phone">
-                        <span>
-                          <IconButton onClick={handleInstallClick} disabled={!installPrompt}>
-                            <PhoneAndroidIcon />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                      <Tooltip title="Enable Desktop Notifications">
-                        <span>
-                          <IconButton onClick={requestNotificationPermission} disabled={notificationsEnabled}>
-                            <LaptopIcon />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                      {notificationsEnabled && (
-                        <Typography variant="body2" color="success.main" sx={{ display: 'flex', alignItems: 'center' }}>
-                          <NotificationsActiveIcon sx={{ mr: 1 }} fontSize="small" />
-                          Notifications enabled
-                        </Typography>
-                      )}
-                    </Box>
-
-                    <Divider sx={{ my: 2 }} />
-
-                    <Typography variant="h6" gutterBottom>
-                      Test Notifications
-                    </Typography>
-                    <Typography variant="body2" paragraph>
-                      Test the notifications to make sure they work on your device:
-                    </Typography>
-                    <Box sx={{ pl: 2, mb: 3 }}>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        1. Press one of the test buttons below
+                    <Box sx={{ pl: { xs: 1, sm: 2 }, mb: 4 }}>
+                      <Typography variant="body1" sx={{ mb: 3, color: 'text.secondary' }}>
+                        Based on your WHOOP wake-up time, Light90 will notify you:
                       </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        2. When you see the countdown message, turn off your screen
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        3. Wait for the notification (10 seconds) - it should wake your device!
-                      </Typography>
-                      <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
-                        <Button
-                          variant="outlined"
-                          startIcon={<WbSunnyIcon />}
-                          onClick={() => sendTestNotification('sunlight')}
-                        >
-                          Test Sunlight Alert
-                        </Button>
-                        <Button
-                          variant="outlined"
-                          startIcon={<CoffeeIcon />}
-                          onClick={() => sendTestNotification('coffee')}
-                        >
-                          Test Coffee Alert
-                        </Button>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                          <WbSunnyIcon sx={{ color: 'secondary.main' }} />
+                          <Typography>When to get your morning sunlight</Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                          <CoffeeIcon sx={{ color: 'primary.main' }} />
+                          <Typography>When to have your first cup of coffee</Typography>
+                        </Box>
                       </Box>
                     </Box>
 
                     {user?.profile?.records && user.profile.records.length > 0 && (
                       <>
-                        <Divider sx={{ my: 2 }} />
-                        <Typography variant="h6" gutterBottom>
-                          This Morning's Timeline
+                        <Divider sx={{ my: 4 }} />
+                        <Typography variant="h6" gutterBottom sx={{ color: 'primary.main' }}>
+                          Today's Timeline
                         </Typography>
-                        {(() => {
-                          const latestSleep = user.profile.records[0];
-                          const wakeTime = new Date(latestSleep.end);
-                          const sunrise = sunTimes?.sunrise ? adjustSunriseTime(new Date(sunTimes.sunrise)) : null;
-                          const now = new Date();
+                        <Box sx={{ pl: { xs: 1, sm: 2 }, mb: 3 }}>
+                          {(() => {
+                            const latestSleep = user.profile.records[0];
+                            const wakeTime = new Date(latestSleep.end);
+                            const sunrise = sunTimes?.sunrise ? adjustSunriseTime(new Date(sunTimes.sunrise)) : null;
+                            const now = new Date();
 
-                          // Calculate optimal times
-                          const optimalSunlightTime = sunrise && wakeTime > sunrise ? wakeTime : sunrise;
-                          const optimalCoffeeTime = wakeTime ? addMinutes(wakeTime, 90) : null;
+                            // Calculate optimal times
+                            const optimalSunlightTime = sunrise && wakeTime > sunrise ? wakeTime : sunrise;
+                            const optimalCoffeeTime = wakeTime ? addMinutes(wakeTime, 90) : null;
 
-                          return (
-                            <Box sx={{ pl: 2, mb: 3 }}>
-                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                                <BedtimeIcon sx={{ mr: 1 }} />
-                                <Typography variant="body2" color="text.secondary">
-                                  Wake time: {formatTimeIfValid(wakeTime)}
-                                </Typography>
-                              </Box>
-                              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                                <WbSunnyIcon sx={{ mr: 1 }} />
-                                <Typography variant="body2" color="text.secondary">
-                                  Sunrise: {formatTimeIfValid(sunrise)} (adjusted for first light)
-                                </Typography>
-                              </Box>
-                              <Box sx={{ borderLeft: '2px solid #ffd700', pl: 2, ml: 1 }}>
-                                <Box sx={{ position: 'relative', mb: 2 }}>
-                                  <Box sx={{
-                                    width: 12,
-                                    height: 12,
-                                    bgcolor: '#ffd700',
-                                    borderRadius: '50%',
-                                    position: 'absolute',
-                                    left: -27,
-                                    top: 6
-                                  }} />
-                                  <Typography variant="body1" sx={{ mb: 0.5 }}>
-                                    {formatTimeIfValid(optimalSunlightTime)}
-                                  </Typography>
+                            return (
+                              <>
+                                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                                  <BedtimeIcon sx={{ color: 'text.secondary', mr: 1 }} />
                                   <Typography variant="body2" color="text.secondary">
-                                    {wakeTime && sunrise && wakeTime > sunrise
-                                      ? "You woke up after sunrise - notification sent immediately to get morning light"
-                                      : "Sunrise notification - optimal time for morning light exposure"}
+                                    Wake time: {formatTimeIfValid(wakeTime)}
                                   </Typography>
                                 </Box>
-                                <Box sx={{ position: 'relative', mb: 2 }}>
-                                  <Box sx={{
-                                    width: 12,
-                                    height: 12,
-                                    bgcolor: '#ffd700',
-                                    borderRadius: '50%',
-                                    position: 'absolute',
-                                    left: -27,
-                                    top: 6
-                                  }} />
-                                  <Typography variant="body1" sx={{ mb: 0.5 }}>
-                                    {formatTimeIfValid(optimalCoffeeTime)}
-                                  </Typography>
+                                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                                  <WbSunnyIcon sx={{ color: 'secondary.main', mr: 1 }} />
                                   <Typography variant="body2" color="text.secondary">
-                                    Optimal coffee time - cortisol levels have naturally dropped
+                                    Sunrise: {formatTimeIfValid(sunrise)} (adjusted for first light)
                                   </Typography>
                                 </Box>
-                              </Box>
-                              <Typography variant="body2" color="text.secondary" sx={{ mt: 2, fontStyle: 'italic' }}>
-                                {now > wakeTime
-                                  ? "This is what would have happened if Light90 was enabled this morning"
-                                  : "This is what will happen tomorrow morning"}
-                              </Typography>
-                            </Box>
-                          );
-                        })()}
-                      </>
-                    )}
+                                <Box sx={{
+                                  borderLeft: `2px solid ${theme.palette.secondary.main}`,
+                                  pl: 2,
+                                  ml: 1,
+                                  position: 'relative'
+                                }}>
+                                  <Box sx={{ position: 'relative', mb: 2 }}>
+                                    <Box sx={{
+                                      width: 12,
+                                      height: 12,
+                                      bgcolor: 'secondary.main',
+                                      borderRadius: '50%',
+                                      position: 'absolute',
+                                      left: -27,
+                                      top: 6
+                                    }} />
+                                    <Typography variant="body1" sx={{ mb: 0.5, fontWeight: 500 }}>
+                                      {formatTimeIfValid(optimalSunlightTime)}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                      {wakeTime && sunrise && wakeTime > sunrise
+                                        ? "You woke up after sunrise - notification sent immediately to get morning light"
+                                        : "Sunrise notification - optimal time for morning light exposure"}
+                                    </Typography>
+                                  </Box>
+                                  <Box sx={{ position: 'relative', mb: 2 }}>
+                                    <Box sx={{
+                                      width: 12,
+                                      height: 12,
+                                      bgcolor: 'primary.main',
+                                      borderRadius: '50%',
+                                      position: 'absolute',
+                                      left: -27,
+                                      top: 6
+                                    }} />
+                                    <Typography variant="body1" sx={{ mb: 0.5, fontWeight: 500 }}>
+                                      {formatTimeIfValid(optimalCoffeeTime)}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                      Optimal coffee time - cortisol levels have naturally dropped
+                                    </Typography>
+                                  </Box>
+                                </Box>
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 2, fontStyle: 'italic' }}>
+                                  {now > wakeTime
+                                    ? "This is what would have happened if Light90 was enabled this morning"
+                                    : "This is what will happen tomorrow morning"}
+                                </Typography>
+                              </>
+                            );
+                          })()}
+                        </Box>
 
-                    {user?.profile?.records && user.profile.records.length > 0 && (
-                      <>
-                        <Divider sx={{ my: 2 }} />
-                        <Typography variant="h6" gutterBottom>
+                        <Divider sx={{ my: 4 }} />
+                        <Typography variant="h6" gutterBottom sx={{ color: 'primary.main' }}>
                           Estimated Next Alerts
                         </Typography>
-                        <Box sx={{ pl: 2, mb: 3 }}>
-                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                            Sunlight alert is based on local sunrise time (adjusted earlier to catch the first light). Coffee alert is based on your average wake time from the last 7 days.
+                        <Box sx={{ pl: { xs: 1, sm: 2 }, mb: 3 }}>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                            Sunlight alert is based on local sunrise time (adjusted earlier to catch the first light).
+                            Coffee alert is based on your average wake time from the last 7 days.
                           </Typography>
-                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                            <WbSunnyIcon sx={{ mr: 1 }} />
-                            <Typography variant="body2">
-                              Sunlight alert: {nextAlerts.sunlight ? (
-                                <>
-                                  {format(nextAlerts.sunlight, 'h:mm a')} (in {formatCountdown(nextAlerts.sunlight)})
-                                  <Typography variant="caption" display="block" color="text.secondary">
-                                    Based on sunrise at {sunTimes?.sunrise ? format(new Date(sunTimes.sunrise), 'h:mm a') : '...'} (adjusted 30min earlier for first light)
-                                  </Typography>
-                                </>
-                              ) : 'Calculating...'}
-                            </Typography>
-                          </Box>
-                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                            <CoffeeIcon sx={{ mr: 1 }} />
-                            <Typography variant="body2">
-                              Coffee alert: {nextAlerts.coffee ? (
-                                <>
-                                  {format(nextAlerts.coffee, 'h:mm a')} (in {formatCountdown(nextAlerts.coffee)})
-                                  <Typography variant="caption" display="block" color="text.secondary">
-                                    Based on average wake time from last {Math.min(7, user?.profile?.records?.length || 0)} days + 90min
-                                  </Typography>
-                                </>
-                              ) : 'Calculating...'}
-                            </Typography>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            <Box>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+                                <WbSunnyIcon sx={{ color: 'secondary.main' }} />
+                                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                                  Sunlight alert: {nextAlerts.sunlight ? (
+                                    <>
+                                      {format(nextAlerts.sunlight, 'h:mm a')}
+                                      <Box component="span" sx={{ color: 'text.secondary', ml: 1 }}>
+                                        (in {formatCountdown(nextAlerts.sunlight)})
+                                      </Box>
+                                    </>
+                                  ) : 'Calculating...'}
+                                </Typography>
+                              </Box>
+                              {nextAlerts.sunlight && (
+                                <Typography variant="caption" sx={{ pl: 4, color: 'text.secondary', display: 'block' }}>
+                                  Based on sunrise at {sunTimes?.sunrise ? format(new Date(sunTimes.sunrise), 'h:mm a') : '...'}
+                                  (adjusted 30min earlier for first light)
+                                </Typography>
+                              )}
+                            </Box>
+                            <Box>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+                                <CoffeeIcon sx={{ color: 'primary.main' }} />
+                                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                                  Coffee alert: {nextAlerts.coffee ? (
+                                    <>
+                                      {format(nextAlerts.coffee, 'h:mm a')}
+                                      <Box component="span" sx={{ color: 'text.secondary', ml: 1 }}>
+                                        (in {formatCountdown(nextAlerts.coffee)})
+                                      </Box>
+                                    </>
+                                  ) : 'Calculating...'}
+                                </Typography>
+                              </Box>
+                              {nextAlerts.coffee && (
+                                <Typography variant="caption" sx={{ pl: 4, color: 'text.secondary', display: 'block' }}>
+                                  Based on average wake time from last {Math.min(7, user?.profile?.records?.length || 0)} days + 90min
+                                </Typography>
+                              )}
+                            </Box>
                           </Box>
                         </Box>
                       </>
                     )}
 
+                    {/* Mobile instructions */}
                     {isMobileDevice && (
                       <>
-                        <Divider sx={{ my: 2 }} />
-                        <Typography variant="h6" gutterBottom>
+                        <Divider sx={{ my: 4 }} />
+                        <Typography variant="h6" gutterBottom sx={{ color: 'primary.main' }}>
                           <PhoneIphoneIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
                           Get Mobile Notifications
                         </Typography>
-                        <Box sx={{ pl: 2, mb: 3 }}>
-                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        <Box sx={{ pl: { xs: 1, sm: 2 }, mb: 3 }}>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                             For the best experience with notifications, add Light90 to your home screen:
                           </Typography>
-
                           {isIOS ? (
-                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                               <Typography variant="body2">
                                 1. Tap the <ShareIcon sx={{ verticalAlign: 'middle', width: 20, height: 20 }} /> Share button
                               </Typography>
@@ -859,7 +947,7 @@ const App: React.FC = () => {
                                   Add to Home Screen
                                 </Button>
                               ) : (
-                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                   <Typography variant="body2">
                                     1. Tap the three dots menu (⋮) in Chrome
                                   </Typography>
@@ -873,19 +961,93 @@ const App: React.FC = () => {
                               )}
                             </>
                           ) : null}
-
-                          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-                            Once added, Light90 will work like a native app with full notification support.
-                          </Typography>
                         </Box>
                       </>
                     )}
+
+                    {/* Test notifications */}
+                    <Divider sx={{ my: 4 }} />
+                    <Typography variant="h6" gutterBottom sx={{ color: 'primary.main' }}>
+                      Test Notifications
+                    </Typography>
+                    <Box sx={{ pl: { xs: 1, sm: 2 }, mb: 3 }}>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                        Test the notifications to make sure they work on your device:
+                      </Typography>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          1. Press one of the test buttons below
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          2. When you see the countdown message, turn off your screen
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          3. Wait for the notification (10 seconds) - it should wake your device!
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
+                          <Button
+                            variant="outlined"
+                            color="secondary"
+                            startIcon={<WbSunnyIcon />}
+                            onClick={() => sendTestNotification('sunlight')}
+                            sx={{
+                              color: 'primary.main',
+                              borderColor: 'primary.main',
+                              '&:hover': {
+                                borderColor: 'primary.dark',
+                                color: 'primary.dark',
+                              }
+                            }}
+                          >
+                            Test Sunlight Alert
+                          </Button>
+                          <Button
+                            variant="outlined"
+                            color="primary"
+                            startIcon={<CoffeeIcon />}
+                            onClick={() => sendTestNotification('coffee')}
+                          >
+                            Test Coffee Alert
+                          </Button>
+                        </Box>
+                      </Box>
+                    </Box>
+
+                    {/* Add notification toggle section */}
+                    <Divider sx={{ my: 4 }} />
+                    <Typography variant="h6" gutterBottom sx={{ color: 'primary.main' }}>
+                      Notification Settings
+                    </Typography>
+                    <Box sx={{ pl: { xs: 1, sm: 2 }, mb: 3 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Box>
+                          <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                            Light90 Notifications
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Receive alerts for optimal sunlight and coffee timing
+                          </Typography>
+                        </Box>
+                        <Switch
+                          checked={notificationsEnabled}
+                          onChange={async (e) => {
+                            if (e.target.checked) {
+                              const permission = await requestNotificationPermission();
+                              setNotificationsEnabled(permission === 'granted');
+                            } else {
+                              setNotificationsEnabled(false);
+                            }
+                          }}
+                          color="primary"
+                        />
+                      </Box>
+                    </Box>
                   </>
                 )}
               </CardContent>
             </Card>
           </Box>
-        </Box>
+        </Container>
       </Container>
     </ThemeProvider>
   );
