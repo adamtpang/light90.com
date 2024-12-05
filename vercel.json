@@ -3,13 +3,29 @@
   "builds": [
     {
       "src": "frontend/package.json",
-      "use": "@vercel/node"
+      "use": "@vercel/static-build"
     }
   ],
   "routes": [
     {
+      "src": "/api/(.*)",
+      "dest": "https://light90-production.up.railway.app/api/$1"
+    },
+    {
+      "src": "/static/(.*)",
+      "dest": "frontend/build/static/$1"
+    },
+    {
+      "src": "/manifest.json",
+      "dest": "frontend/build/manifest.json"
+    },
+    {
+      "src": "/favicon.ico",
+      "dest": "frontend/build/favicon.ico"
+    },
+    {
       "src": "/(.*)",
-      "dest": "frontend/$1"
+      "dest": "frontend/build/index.html"
     }
   ],
   "buildCommand": "cd frontend && npm install && npm run build",
