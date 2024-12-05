@@ -5,6 +5,15 @@ const passport = require('passport');
 const session = require('express-session');
 const OAuth2Strategy = require('passport-oauth2');
 const axios = require('axios');
+const { createClient } = require('redis');
+const RedisStore = require('connect-redis').default;
+
+// Clean environment variables (remove any trailing semicolons)
+Object.keys(process.env).forEach(key => {
+  if (typeof process.env[key] === 'string') {
+    process.env[key] = process.env[key].replace(/;$/, '');
+  }
+});
 
 // Verify required environment variables
 const requiredEnvVars = [
@@ -14,7 +23,8 @@ const requiredEnvVars = [
   'REDIRECT_URI',
   'WHOOP_CLIENT_ID',
   'WHOOP_CLIENT_SECRET',
-  'SESSION_SECRET'
+  'SESSION_SECRET',
+  'REDIS_URL'
 ];
 
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
@@ -25,17 +35,29 @@ if (missingEnvVars.length > 0) {
 
 const app = express();
 
+// Initialize Redis client
+const redisClient = createClient({
+  url: process.env.REDIS_URL,
+  socket: {
+    connectTimeout: 10000
+  }
+});
+
+redisClient.on('error', (err) => console.error('Redis Client Error:', err));
+redisClient.on('connect', () => console.log('Connected to Redis'));
+
+// Connect to Redis
+(async () => {
+  try {
+    await redisClient.connect();
+  } catch (error) {
+    console.error('Failed to connect to Redis:', error);
+    process.exit(1);
+  }
+})();
+
 // Basic middleware
 app.use(express.json());
-
-// Request logging middleware (before CORS)
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`, {
-    origin: req.headers.origin,
-    headers: req.headers
-  });
-  next();
-});
 
 // CORS configuration
 const corsOptions = {
@@ -53,8 +75,9 @@ app.use(cors(corsOptions));
 // Add CORS preflight
 app.options('*', cors(corsOptions));
 
-// Session configuration
+// Session configuration with Redis
 app.use(session({
+  store: new RedisStore({ client: redisClient }),
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
@@ -69,6 +92,15 @@ app.use(session({
 // Initialize Passport
 app.use(passport.initialize());
 app.use(passport.session());
+
+// Request logging
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`, {
+    origin: req.headers.origin,
+    headers: req.headers
+  });
+  next();
+});
 
 // Response logging middleware
 app.use((req, res, next) => {
@@ -248,31 +280,6 @@ app.use((req, res) => {
 // Start server
 const PORT = process.env.PORT || 8080;
 
-// Add error handler for uncaught exceptions
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', {
-    message: error.message,
-    stack: error.stack
-  });
-  // Exit on uncaught exception in production
-  if (process.env.NODE_ENV === 'production') {
-    process.exit(1);
-  }
-});
-
-// Add error handler for unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection:', {
-    reason: reason instanceof Error ? reason.stack : reason,
-    promise
-  });
-  // Exit on unhandled rejection in production
-  if (process.env.NODE_ENV === 'production') {
-    process.exit(1);
-  }
-});
-
-// Start the server
 try {
   const server = app.listen(PORT, '0.0.0.0', () => {
     console.log('=== Server Started ===');
@@ -281,7 +288,8 @@ try {
       PORT: process.env.PORT,
       CLIENT_URL: process.env.CLIENT_URL,
       REDIRECT_URI: process.env.REDIRECT_URI,
-      CORS_ORIGIN: corsOptions.origin
+      CORS_ORIGIN: corsOptions.origin,
+      REDIS_CONNECTED: redisClient.isOpen
     });
     console.log('===================');
   });
