@@ -8,6 +8,19 @@ const axios = require('axios');
 
 const app = express();
 
+// Basic middleware
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production'
+    ? ['https://light90.com']
+    : ['http://localhost:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With']
+}));
+
+// Add CORS preflight
+app.options('*', cors());
+
 // Session configuration
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
@@ -24,20 +37,6 @@ app.use(session({
 // Initialize Passport
 app.use(passport.initialize());
 app.use(passport.session());
-
-// Basic middleware
-app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? ['https://light90.com']
-    : ['http://localhost:3000'],
-  credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With']
-}));
-
-// Add CORS preflight
-app.options('*', cors());
-
 app.use(express.json());
 
 // Passport serialization
@@ -101,6 +100,10 @@ const whoopStrategy = new OAuth2Strategy(
 passport.use('whoop', whoopStrategy);
 
 // Routes
+app.get('/', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -177,11 +180,23 @@ app.use((req, res) => {
 
 // Start server
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
-  console.log('Environment:', {
-    NODE_ENV: process.env.NODE_ENV,
-    CLIENT_URL: process.env.CLIENT_URL,
-    REDIRECT_URI: process.env.REDIRECT_URI
-  });
+
+// Add error handler for uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+});
+
+// Add error handler for unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Start the server
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log('=== Server Started ===');
+  console.log(`Environment: ${process.env.NODE_ENV}`);
+  console.log(`Port: ${PORT}`);
+  console.log(`Client URL: ${process.env.CLIENT_URL}`);
+  console.log(`Redirect URI: ${process.env.REDIRECT_URI}`);
+  console.log('===================');
 });
