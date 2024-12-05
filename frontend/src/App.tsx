@@ -46,6 +46,7 @@ const App: React.FC = () => {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const nextAlertsRef = useRef<NextAlerts>({ sunlight: null, coffee: null });
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [locationEnabled, setLocationEnabled] = useState<boolean>(false);
 
   // Device detection
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -131,26 +132,28 @@ const App: React.FC = () => {
         }
       };
 
-      // Show countdown message
-      const countdownId = addAlert(
-        'info',
-        'Test notification will appear in 10 seconds. Try turning off your screen to test if notifications work while your phone is locked!'
-      );
+      // Show initial message
+      addAlert('info', 'Test notification will appear in 10 seconds...');
 
       // Wait 10 seconds
       await new Promise(resolve => setTimeout(resolve, 10000));
 
-      // Remove countdown message and show actual alert
-      removeAlert(countdownId);
-
-      // Create and play looping audio
+      // Play notification sound
       const audio = new Audio('/notification.wav');
       audio.loop = true;
       await audio.play().catch(error => {
         console.error('Error playing notification sound:', error);
       });
 
-      // Add the actual notification with its audio
+      // Show the actual notification
+      if ('Notification' in window) {
+        const notification = new Notification(messages[type].title, {
+          body: messages[type].body,
+          icon: '/logo192.svg'
+        });
+      }
+
+      // Add the alert with its audio
       addAlert(type, `${messages[type].title} ${messages[type].body}`, audio);
 
     } catch (error) {
@@ -337,6 +340,80 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
+  // Schedule notifications when nextAlerts change
+  useEffect(() => {
+    if (!notificationsEnabled || !nextAlerts.sunlight || !nextAlerts.coffee) return;
+
+    const scheduleNotification = (time: Date, type: 'sunlight' | 'coffee') => {
+      const now = new Date();
+      const delay = time.getTime() - now.getTime();
+
+      if (delay <= 0) return; // Don't schedule if time has passed
+
+      console.log(`Scheduling ${type} notification for:`, time);
+
+      const timeoutId = setTimeout(() => {
+        const messages = {
+          sunlight: {
+            title: '☀️ Time for Morning Sunlight!',
+            body: 'Get 10-30 minutes of sunlight now to boost your energy and regulate your sleep cycle.'
+          },
+          coffee: {
+            title: '☕ Perfect Time for Coffee!',
+            body: 'Your cortisol has dropped - this is the optimal time for your first coffee.'
+          }
+        };
+
+        // Play notification sound
+        const audio = new Audio('/notification.wav');
+        audio.play().catch(console.error);
+
+        // Show notification
+        if ('Notification' in window) {
+          const notification = new Notification(messages[type].title, {
+            body: messages[type].body,
+            icon: '/logo192.svg'
+          });
+        }
+
+        // Add alert to UI
+        addAlert(type, `${messages[type].title} ${messages[type].body}`);
+      }, delay);
+
+      return timeoutId;
+    };
+
+    // Schedule both notifications
+    const sunlightTimeout = scheduleNotification(nextAlerts.sunlight, 'sunlight');
+    const coffeeTimeout = scheduleNotification(nextAlerts.coffee, 'coffee');
+
+    // Cleanup
+    return () => {
+      if (sunlightTimeout) clearTimeout(sunlightTimeout);
+      if (coffeeTimeout) clearTimeout(coffeeTimeout);
+    };
+  }, [nextAlerts, notificationsEnabled]);
+
+  // Request location permission
+  const requestLocationPermission = async () => {
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject);
+      });
+
+      setLocation({
+        lat: position.coords.latitude,
+        lon: position.coords.longitude
+      });
+      setLocationEnabled(true);
+      return true;
+    } catch (error) {
+      console.error('Error getting location:', error);
+      setError('Unable to get your location. Please enable location services.');
+      return false;
+    }
+  };
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -439,40 +516,65 @@ const App: React.FC = () => {
                 }}>
                   {!user ? (
                     <Box sx={{ textAlign: 'center' }}>
-                      <Button
-                        variant="contained"
-                        color="primary"
-                        onClick={connectWhoop}
-                        size="large"
-                        sx={{
-                          py: 1.5,
-                          px: 4,
-                          fontSize: '1.1rem',
-                          backgroundColor: 'primary.main',
-                          '&:hover': {
-                            backgroundColor: 'primary.dark',
-                          },
-                        }}
-                      >
-                        Connect to WHOOP
-                      </Button>
+                      {!locationEnabled ? (
+                        <>
+                          <Typography variant="body1" sx={{ mb: 3, color: 'text.secondary' }}>
+                            Light90 needs your location to calculate optimal sunlight timing.
+                          </Typography>
+                          <Button
+                            variant="contained"
+                            color="primary"
+                            onClick={requestLocationPermission}
+                            size="large"
+                            sx={{
+                              py: 1.5,
+                              px: 4,
+                              fontSize: '1.1rem',
+                              backgroundColor: 'primary.main',
+                              '&:hover': {
+                                backgroundColor: 'primary.dark',
+                              },
+                            }}
+                          >
+                            Enable Location
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          onClick={connectWhoop}
+                          size="large"
+                          sx={{
+                            py: 1.5,
+                            px: 4,
+                            fontSize: '1.1rem',
+                            backgroundColor: 'primary.main',
+                            '&:hover': {
+                              backgroundColor: 'primary.dark',
+                            },
+                          }}
+                        >
+                          Connect to WHOOP
+                        </Button>
+                      )}
                     </Box>
                   ) : (
                     <>
                       <WhatToExpect />
-                      <Divider sx={{ my: 4 }} />
-                      <SimulatedTimeline
-                        user={user}
-                        sunTimes={sunTimes}
-                        formatTimeIfValid={formatTimeIfValid}
-                        adjustSunriseTime={adjustSunriseTime}
-                      />
                       <Divider sx={{ my: 4 }} />
                       <EstimatedNextAlerts
                         nextAlerts={nextAlerts}
                         sunTimes={sunTimes}
                         formatCountdown={formatCountdown}
                         user={user}
+                      />
+                      <Divider sx={{ my: 4 }} />
+                      <SimulatedTimeline
+                        user={user}
+                        sunTimes={sunTimes}
+                        formatTimeIfValid={formatTimeIfValid}
+                        adjustSunriseTime={adjustSunriseTime}
                       />
                       <Divider sx={{ my: 4 }} />
                       <TestNotifications
@@ -484,6 +586,7 @@ const App: React.FC = () => {
                         notificationsEnabled={notificationsEnabled}
                         requestNotificationPermission={requestNotificationPermission}
                         setNotificationsEnabled={setNotificationsEnabled}
+                        isMobileDevice={isMobileDevice}
                       />
                       {isMobileDevice && (
                         <>

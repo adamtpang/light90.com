@@ -144,25 +144,6 @@ app.get('/auth/whoop/callback',
   }
 );
 
-// WHOOP API endpoints
-app.get('/api/v1/sleep', async (req, res) => {
-  try {
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({ error: 'Not authenticated' });
-    }
-
-    if (req.user.profile && req.user.profile.records) {
-      return res.json({
-        records: req.user.profile.records
-      });
-    }
-
-    return res.status(404).json({ error: 'No sleep data available' });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch sleep data' });
-  }
-});
-
 // Error handling
 app.use((err, req, res, next) => {
   console.error('Error:', err);
@@ -194,9 +175,11 @@ process.on('unhandledRejection', (reason, promise) => {
 // Start the server
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log('=== Server Started ===');
-  console.log(`Environment: ${process.env.NODE_ENV}`);
-  console.log(`Port: ${PORT}`);
-  console.log(`Client URL: ${process.env.CLIENT_URL}`);
-  console.log(`Redirect URI: ${process.env.REDIRECT_URI}`);
+  console.log('Environment:', {
+    NODE_ENV: process.env.NODE_ENV,
+    PORT: process.env.PORT,
+    CLIENT_URL: process.env.CLIENT_URL,
+    REDIRECT_URI: process.env.REDIRECT_URI
+  });
   console.log('===================');
 });
