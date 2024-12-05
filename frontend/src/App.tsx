@@ -6,7 +6,7 @@ import {
   Box,
   Typography,
   Button,
-  Alert as MuiAlert,
+  Alert,
   useMediaQuery,
   createTheme,
   Divider,
@@ -15,7 +15,7 @@ import {
 } from '@mui/material';
 import { format, addMinutes } from 'date-fns';
 import { getTimes } from 'suncalc';
-import { VitalUser, SleepData, Alert, NextAlerts } from './types';
+import { VitalUser, SleepData, NotificationAlert, NextAlerts } from './types';
 import theme from './theme';
 
 // Component imports
@@ -37,7 +37,7 @@ const App: React.FC = () => {
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(() => {
     return Notification.permission === 'granted';
   });
-  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [alerts, setAlerts] = useState<NotificationAlert[]>([]);
   const [nextAlerts, setNextAlerts] = useState<NextAlerts>({ sunlight: null, coffee: null });
   const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null);
   const [isInstallable, setIsInstallable] = useState(false);
@@ -47,6 +47,7 @@ const App: React.FC = () => {
   const nextAlertsRef = useRef<NextAlerts>({ sunlight: null, coffee: null });
   const [currentTime, setCurrentTime] = useState(new Date());
   const [locationEnabled, setLocationEnabled] = useState<boolean>(false);
+  const [locationDenied, setLocationDenied] = useState<boolean>(false);
 
   // Device detection
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -406,9 +407,13 @@ const App: React.FC = () => {
         lon: position.coords.longitude
       });
       setLocationEnabled(true);
+      setLocationDenied(false);
       return true;
     } catch (error) {
       console.error('Error getting location:', error);
+      if (error instanceof GeolocationPositionError && error.code === 1) {
+        setLocationDenied(true);
+      }
       setError('Unable to get your location. Please enable location services.');
       return false;
     }
@@ -453,7 +458,7 @@ const App: React.FC = () => {
             gap: 2
           }}>
             {alerts.map((alert) => (
-              <MuiAlert
+              <Alert
                 key={alert.id}
                 severity="info"
                 sx={{
@@ -471,7 +476,7 @@ const App: React.FC = () => {
                 onClose={() => removeAlert(alert.id)}
               >
                 {alert.message}
-              </MuiAlert>
+              </Alert>
             ))}
           </Box>
 
@@ -521,6 +526,22 @@ const App: React.FC = () => {
                           <Typography variant="body1" sx={{ mb: 3, color: 'text.secondary' }}>
                             Light90 needs your location to calculate optimal sunlight timing.
                           </Typography>
+                          {locationDenied && (
+                            <Alert
+                              severity="warning"
+                              sx={{
+                                mb: 3,
+                                '& .MuiAlert-message': {
+                                  width: '100%'
+                                }
+                              }}
+                            >
+                              <Typography variant="body2">
+                                Location access was denied. Light90 needs your location to calculate sunrise times.
+                                Please enable location access in your browser settings and try again.
+                              </Typography>
+                            </Alert>
+                          )}
                           <Button
                             variant="contained"
                             color="primary"
@@ -536,7 +557,7 @@ const App: React.FC = () => {
                               },
                             }}
                           >
-                            Enable Location
+                            {locationDenied ? 'Enable Location Access' : 'Enable Location'}
                           </Button>
                         </>
                       ) : (

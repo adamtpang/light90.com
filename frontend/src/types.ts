@@ -32,7 +32,7 @@ export interface VitalUser {
   };
 }
 
-export interface Alert {
+export interface NotificationAlert {
   id: string;
   type: 'sunlight' | 'coffee' | 'info' | null;
   message: string;
