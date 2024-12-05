@@ -12,30 +12,32 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// Basic middleware
-app.use(cors({
+// Configure CORS first, before any other middleware
+const corsOptions = {
   origin: function(origin, callback) {
+    const allowedOrigins = ['https://light90.com', 'http://localhost:3000'];
+
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-
-    const allowedOrigins = process.env.NODE_ENV === 'production'
-      ? ['https://light90.com', 'https://www.light90.com']
-      : ['http://localhost:3000'];
 
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
-      console.log('Origin not allowed by CORS:', origin);
+      console.log('Origin rejected by CORS:', origin);
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With']
-}));
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+  optionsSuccessStatus: 200
+};
 
-// Add CORS preflight
-app.options('*', cors());
+// Apply CORS middleware first
+app.use(cors(corsOptions));
+
+// Enable pre-flight requests for all routes
+app.options('*', cors(corsOptions));
 
 // Session configuration
 app.use(session({
@@ -45,7 +47,8 @@ app.use(session({
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    sameSite: 'none'  // Required for cross-site cookies
   }
 }));
 
@@ -266,13 +269,19 @@ app.get('/api/v1/sleep/refresh', async (req, res) => {
   }
 });
 
-// Error handling middleware
+// Error handling middleware (at the end)
 app.use((err, req, res, next) => {
   console.error('Error:', {
     message: err.message,
     stack: err.stack,
-    status: err.status || 500
+    status: err.status || 500,
+    origin: req.headers.origin
   });
+
+  // Ensure CORS headers are set even for error responses
+  res.header('Access-Control-Allow-Origin', req.headers.origin);
+  res.header('Access-Control-Allow-Credentials', true);
+
   res.status(err.status || 500).json({
     error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message
   });
@@ -291,9 +300,8 @@ app.use((req, res) => {
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
-  console.log('Environment variables:', {
-    NODE_ENV: process.env.NODE_ENV,
-    CLIENT_URL: process.env.CLIENT_URL,
-    PORT: process.env.PORT
+  console.log('CORS configuration:', {
+    allowedOrigins: ['https://light90.com', 'http://localhost:3000'],
+    credentials: true
   });
 });
