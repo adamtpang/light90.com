@@ -15,12 +15,12 @@ const wss = new WebSocket.Server({ server });
 // Configure CORS first, before any other middleware
 const corsOptions = {
   origin: function(origin, callback) {
-    const allowedOrigins = ['https://light90.com', 'http://localhost:3000'];
+    const allowedOrigins = ['https://light90.com', 'http://localhost:3000', 'http://localhost:5000'];
 
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
 
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    if (allowedOrigins.indexOf(origin) !== -1 || origin.startsWith('http://localhost')) {
       callback(null, true);
     } else {
       console.log('Origin rejected by CORS:', origin);
@@ -48,7 +48,7 @@ app.use(session({
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: 'none'  // Required for cross-site cookies
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
   }
 }));
 
@@ -166,14 +166,18 @@ app.get('/auth/whoop', (req, res, next) => {
 });
 
 app.get('/auth/whoop/callback',
-  passport.authenticate('whoop', {
-    failureRedirect: '/login',
-    failWithError: true,
-    session: true
-  }),
+  (req, res, next) => {
+    console.log('Received callback with query:', req.query);
+    next();
+  },
+  passport.authenticate('whoop', { session: true }),
   (req, res) => {
     console.log('OAuth callback successful');
     res.redirect(process.env.CLIENT_URL || 'http://localhost:3000');
+  },
+  (err, req, res, next) => {
+    console.error('OAuth callback error:', err);
+    res.redirect(`${process.env.CLIENT_URL || 'http://localhost:3000'}?error=auth_failed`);
   }
 );
 
