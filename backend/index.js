@@ -266,10 +266,16 @@ app.get('/api/v1/sleep/refresh', async (req, res) => {
   }
 });
 
-// Error handling
+// Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(err.status || 500).json({ error: err.message });
+  console.error('Error:', {
+    message: err.message,
+    stack: err.stack,
+    status: err.status || 500
+  });
+  res.status(err.status || 500).json({
+    error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message
+  });
 });
 
 // 404 handler
@@ -282,7 +288,12 @@ app.use((req, res) => {
 });
 
 // Start server
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+const PORT = process.env.PORT || 8080;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
+  console.log('Environment variables:', {
+    NODE_ENV: process.env.NODE_ENV,
+    CLIENT_URL: process.env.CLIENT_URL,
+    PORT: process.env.PORT
+  });
 });
