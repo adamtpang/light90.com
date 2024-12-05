@@ -273,13 +273,16 @@ app.get('/api/v1/sleep/refresh', async (req, res) => {
   }
 });
 
-// Error handling middleware (at the end)
+// Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', {
     message: err.message,
     stack: err.stack,
     status: err.status || 500,
-    origin: req.headers.origin
+    path: req.path,
+    method: req.method,
+    query: req.query,
+    headers: req.headers
   });
 
   // Ensure CORS headers are set even for error responses
@@ -287,25 +290,56 @@ app.use((err, req, res, next) => {
   res.header('Access-Control-Allow-Credentials', true);
 
   res.status(err.status || 500).json({
-    error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message
+    error: process.env.NODE_ENV === 'production'
+      ? 'Internal Server Error'
+      : err.message,
+    path: req.path,
+    timestamp: new Date().toISOString()
   });
 });
 
-// 404 handler
+// Handle 404s
 app.use((req, res) => {
+  console.log('404 Not Found:', {
+    path: req.path,
+    method: req.method,
+    query: req.query
+  });
+
   res.status(404).json({
     error: 'Route not found',
     method: req.method,
-    url: req.url
+    url: req.path
   });
 });
 
-// Start server
+// Start server with better error handling
 const PORT = process.env.PORT || 8080;
+
+// Add error handler for uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+// Add error handler for unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
+
+// Start the server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
-  console.log('CORS configuration:', {
-    allowedOrigins: ['https://light90.com', 'http://localhost:3000'],
-    credentials: true
-  });
+  console.log('=== Server Started ===');
+  console.log(`Environment: ${process.env.NODE_ENV}`);
+  console.log(`Port: ${PORT}`);
+  console.log(`Client URL: ${process.env.CLIENT_URL}`);
+  console.log(`Redirect URI: ${process.env.REDIRECT_URI}`);
+  console.log('===================');
+});
+
+// Add server error handler
+server.on('error', (error) => {
+  console.error('Server error:', error);
+  process.exit(1);
 });
