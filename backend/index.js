@@ -14,9 +14,21 @@ const wss = new WebSocket.Server({ server });
 
 // Basic middleware
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? ['https://light90.com', 'https://www.light90.com']
-    : ['http://localhost:3000'],
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+
+    const allowedOrigins = process.env.NODE_ENV === 'production'
+      ? ['https://light90.com', 'https://www.light90.com']
+      : ['http://localhost:3000'];
+
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log('Origin not allowed by CORS:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With']
