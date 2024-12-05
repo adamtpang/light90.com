@@ -5,8 +5,25 @@ const passport = require('passport');
 const session = require('express-session');
 const OAuth2Strategy = require('passport-oauth2');
 const axios = require('axios');
+const WebSocket = require('ws');
+const http = require('http');
 
 const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
+
+// Basic middleware
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production'
+    ? ['https://light90.com']
+    : ['http://localhost:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With']
+}));
+
+// Add CORS preflight
+app.options('*', cors());
 
 // Session configuration
 app.use(session({
@@ -23,18 +40,6 @@ app.use(session({
 // Initialize Passport
 app.use(passport.initialize());
 app.use(passport.session());
-
-// Basic middleware
-app.use(cors({
-  origin: ['https://light90.com', 'http://localhost:3000'],
-  credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
-}));
-
-// Add CORS preflight
-app.options('*', cors());
-
 app.use(express.json());
 
 // Passport serialization
@@ -65,7 +70,11 @@ const whoopStrategy = new OAuth2Strategy(
   },
   async (accessToken, refreshToken, params, profile, done) => {
     try {
-      // Get user profile from WHOOP API
+      // Get latest sleep data from WHOOP API
+      const now = new Date();
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+
       const userResponse = await axios.get('https://api.prod.whoop.com/developer/v1/activity/sleep', {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -75,8 +84,8 @@ const whoopStrategy = new OAuth2Strategy(
           'User-Agent': 'Light90/1.0.0'
         },
         params: {
-          start_date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-          end_date: new Date().toISOString()
+          start_date: yesterday.toISOString().split('T')[0],
+          end_date: now.toISOString().split('T')[0]
         }
       });
 
@@ -89,6 +98,7 @@ const whoopStrategy = new OAuth2Strategy(
 
       return done(null, user);
     } catch (error) {
+      console.error('OAuth callback error:', error.response?.data || error.message);
       return done(error);
     }
   }
@@ -96,12 +106,29 @@ const whoopStrategy = new OAuth2Strategy(
 
 passport.use('whoop', whoopStrategy);
 
+// WebSocket connection handling
+wss.on('connection', (ws) => {
+  console.log('Client connected to WebSocket');
+
+  ws.on('close', () => {
+    console.log('Client disconnected from WebSocket');
+  });
+
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error);
+  });
+});
+
 // Routes
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
 app.get('/auth/status', (req, res) => {
+  console.log('Auth status check:', {
+    isAuthenticated: req.isAuthenticated(),
+    hasUser: !!req.user
+  });
   res.json({
     authenticated: req.isAuthenticated(),
     user: req.user
@@ -109,6 +136,7 @@ app.get('/auth/status', (req, res) => {
 });
 
 app.get('/auth/whoop', (req, res, next) => {
+  console.log('Starting WHOOP OAuth flow');
   passport.authenticate('whoop', {
     scope: ['offline', 'read:sleep', 'read:profile'],
     state: true,
@@ -123,6 +151,7 @@ app.get('/auth/whoop/callback',
     session: true
   }),
   (req, res) => {
+    console.log('OAuth callback successful');
     res.redirect(process.env.CLIENT_URL || 'http://localhost:3000');
   }
 );
@@ -146,6 +175,79 @@ app.get('/api/v1/sleep', async (req, res) => {
   }
 });
 
+// Add sleep data refresh endpoint
+app.get('/api/v1/sleep/refresh', async (req, res) => {
+  try {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    if (!req.user?.accessToken) {
+      return res.status(401).json({ error: 'No access token available' });
+    }
+
+    const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const response = await axios.get('https://api.prod.whoop.com/developer/v1/activity/sleep', {
+      headers: {
+        'Authorization': `Bearer ${req.user.accessToken}`,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'api-version': '2',
+        'User-Agent': 'Light90/1.0.0'
+      },
+      params: {
+        start_date: yesterday.toISOString().split('T')[0],
+        end_date: now.toISOString().split('T')[0]
+      }
+    });
+
+    // Update the user's profile with new sleep data
+    if (response.data && response.data.records) {
+      // Check if data has actually changed
+      const currentRecords = req.user.profile?.records || [];
+      const newRecords = response.data.records;
+      const hasChanged = JSON.stringify(currentRecords) !== JSON.stringify(newRecords);
+
+      if (hasChanged) {
+        req.user.profile = response.data;
+
+        // Broadcast update to WebSocket clients
+        const wsMessage = JSON.stringify({
+          type: 'sleep_updated',
+          data: response.data
+        });
+
+        wss.clients.forEach(client => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(wsMessage);
+          }
+        });
+      }
+
+      res.json({
+        records: response.data.records
+      });
+    } else {
+      res.json({
+        records: []
+      });
+    }
+  } catch (error) {
+    console.error('Error refreshing sleep data:', {
+      message: error.message,
+      status: error.response?.status,
+      data: error.response?.data
+    });
+    res.status(500).json({
+      error: 'Failed to refresh sleep data',
+      details: error.message
+    });
+  }
+});
+
 // Error handling
 app.use((err, req, res, next) => {
   console.error('Error:', err);
@@ -162,7 +264,7 @@ app.use((req, res) => {
 });
 
 // Start server
-const port = process.env.PORT || 8080;
-app.listen(port, () => {
-  console.log(`Server running on port ${port} in ${process.env.NODE_ENV || 'development'} mode`);
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
 });
