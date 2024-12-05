@@ -15,7 +15,7 @@ const wss = new WebSocket.Server({ server });
 // Basic middleware
 app.use(cors({
   origin: process.env.NODE_ENV === 'production'
-    ? ['https://light90.com']
+    ? ['https://light90.com', 'https://www.light90.com']
     : ['http://localhost:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -121,7 +121,13 @@ wss.on('connection', (ws) => {
 
 // Routes
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV,
+    memory: process.memoryUsage(),
+    uptime: process.uptime()
+  });
 });
 
 app.get('/auth/status', (req, res) => {
