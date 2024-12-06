@@ -16,25 +16,32 @@ console.log('Process Info:', {
   platform: process.platform,
   version: process.version,
   memory: process.memoryUsage(),
-  env: process.env.NODE_ENV
+  env: process.env.NODE_ENV,
+  cwd: process.cwd(),
+  user: process.env.USER || process.env.USERNAME
 });
 
-// Clean environment variables more aggressively
+// Clean environment variables
 const cleanEnvVars = () => {
+  const cleaned = {};
   Object.keys(process.env).forEach(key => {
     if (typeof process.env[key] === 'string') {
-      const originalValue = process.env[key];
-      const cleanedValue = process.env[key].replace(/[;,'"]+/g, '').trim();
-      if (originalValue !== cleanedValue) {
-        console.log(`Cleaned env var ${key}: "${originalValue}" -> "${cleanedValue}"`);
-      }
-      process.env[key] = cleanedValue;
+      // Remove all non-alphanumeric characters from the end of the string
+      cleaned[key] = process.env[key].replace(/[^a-zA-Z0-9]$/g, '').trim();
+      process.env[key] = cleaned[key];
     }
   });
+  return cleaned;
 };
 
-// Clean environment variables
-cleanEnvVars();
+// Clean and validate environment variables
+const cleaned = cleanEnvVars();
+console.log('Cleaned environment variables:', {
+  NODE_ENV: cleaned.NODE_ENV,
+  PORT: cleaned.PORT,
+  CLIENT_URL: cleaned.CLIENT_URL,
+  REDIRECT_URI: cleaned.REDIRECT_URI
+});
 
 // Validate required environment variables
 const requiredEnvVars = [
@@ -52,14 +59,6 @@ if (missingEnvVars.length > 0) {
   console.error('Missing required environment variables:', missingEnvVars);
   process.exit(1);
 }
-
-// Log cleaned environment variables (without sensitive data)
-console.log('Environment variables loaded:', {
-  NODE_ENV: process.env.NODE_ENV,
-  PORT: process.env.PORT,
-  CLIENT_URL: process.env.CLIENT_URL,
-  REDIRECT_URI: process.env.REDIRECT_URI
-});
 
 const app = express();
 
@@ -86,11 +85,17 @@ app.options('*', cors(corsOptions));
 // Request logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Starting`);
+  const requestId = Math.random().toString(36).substring(7);
+
+  console.log(`[${new Date().toISOString()}] (${requestId}) ${req.method} ${req.url} - Starting`, {
+    headers: req.headers,
+    query: req.query,
+    origin: req.get('origin')
+  });
 
   res.on('finish', () => {
     const duration = Date.now() - start;
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
+    console.log(`[${new Date().toISOString()}] (${requestId}) ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
   });
 
   next();
@@ -103,7 +108,7 @@ const sessionConfig = {
   resave: false,
   saveUninitialized: false,
   rolling: true,
-  proxy: true, // Trust the reverse proxy
+  proxy: true,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
@@ -124,10 +129,41 @@ let isServerReady = false;
 let serverShutdownInitiated = false;
 let lastHealthCheckTime = null;
 let healthCheckCount = 0;
+let startupProblems = [];
+
+// Container readiness check
+const checkContainerReadiness = () => {
+  const problems = [];
+
+  // Check environment
+  if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'development') {
+    problems.push(`Invalid NODE_ENV: ${process.env.NODE_ENV}`);
+  }
+
+  // Check port
+  const port = parseInt(process.env.PORT);
+  if (isNaN(port) || port < 1 || port > 65535) {
+    problems.push(`Invalid PORT: ${process.env.PORT}`);
+  }
+
+  // Check URLs
+  try {
+    new URL(process.env.CLIENT_URL);
+    new URL(process.env.REDIRECT_URI);
+  } catch (error) {
+    problems.push(`Invalid URL format: ${error.message}`);
+  }
+
+  return problems;
+};
 
 // Routes
 app.get('/', (req, res) => {
-  res.json({ status: 'ok' });
+  res.json({
+    status: 'ok',
+    uptime: process.uptime(),
+    startTime: startTime.toISOString()
+  });
 });
 
 app.get('/health', (req, res) => {
@@ -136,17 +172,30 @@ app.get('/health', (req, res) => {
   const uptime = process.uptime();
   const timeSinceStart = (Date.now() - startTime.getTime()) / 1000;
 
+  // Check container readiness
+  const currentProblems = checkContainerReadiness();
+
   console.log('Health check details:', {
     checkNumber: healthCheckCount,
     uptime: Math.round(uptime) + 's',
     timeSinceStart: Math.round(timeSinceStart) + 's',
     serverReady: isServerReady,
     shutdownInitiated: serverShutdownInitiated,
-    lastCheck: lastHealthCheckTime.toISOString()
+    lastCheck: lastHealthCheckTime.toISOString(),
+    problems: currentProblems
   });
 
+  if (currentProblems.length > 0) {
+    console.error('Container health problems:', currentProblems);
+    return res.status(503).json({
+      status: 'error',
+      message: 'Container health check failed',
+      problems: currentProblems,
+      time: new Date().toISOString()
+    });
+  }
+
   if (serverShutdownInitiated) {
-    console.log('Health check failed - server is shutting down');
     return res.status(503).json({
       status: 'error',
       message: 'Server is shutting down',
@@ -155,7 +204,6 @@ app.get('/health', (req, res) => {
   }
 
   if (!isServerReady) {
-    console.log('Health check failed - server not ready');
     return res.status(503).json({
       status: 'error',
       message: 'Server starting up',
@@ -164,13 +212,14 @@ app.get('/health', (req, res) => {
   }
 
   try {
-    // Basic health checks
     const memoryUsage = process.memoryUsage();
     const processInfo = {
       memoryUsage: Math.round(memoryUsage.heapUsed / 1024 / 1024) + 'MB',
       uptime: Math.round(uptime) + 's',
       healthChecks: healthCheckCount,
-      timeSinceStart: Math.round(timeSinceStart) + 's'
+      timeSinceStart: Math.round(timeSinceStart) + 's',
+      startTime: startTime.toISOString(),
+      lastHealthCheck: lastHealthCheckTime.toISOString()
     };
 
     console.log('Health check passed:', processInfo);
@@ -185,30 +234,53 @@ app.get('/health', (req, res) => {
     res.status(503).json({
       status: 'error',
       message: 'Health check failed',
+      error: error.message,
       time: new Date().toISOString()
     });
   }
 });
 
-// Process event handlers
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', {
-    error: error.message,
-    stack: error.stack,
-    time: new Date().toISOString()
+// Start server
+const port = process.env.PORT || 5000;
+
+// Check container readiness before starting
+startupProblems = checkContainerReadiness();
+if (startupProblems.length > 0) {
+  console.error('Container startup problems detected:', startupProblems);
+  process.exit(1);
+}
+
+const server = app.listen(port, '0.0.0.0', () => {
+  const serverStartTime = new Date();
+  const startupDuration = (serverStartTime - startTime) / 1000;
+
+  console.log('Server startup details:', {
+    startTime: startTime.toISOString(),
+    serverReady: serverStartTime.toISOString(),
+    startupDuration: Math.round(startupDuration * 1000) + 'ms',
+    port: port,
+    environment: {
+      NODE_ENV: process.env.NODE_ENV,
+      CLIENT_URL: process.env.CLIENT_URL,
+      REDIRECT_URI: process.env.REDIRECT_URI,
+      CORS_ORIGIN: corsOptions.origin
+    }
   });
-  serverShutdownInitiated = true;
-  shutdown('uncaughtException');
+
+  isServerReady = true;
+  console.log('Server is ready to accept requests');
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection:', {
-    reason: reason instanceof Error ? reason.message : reason,
-    stack: reason instanceof Error ? reason.stack : 'No stack trace',
-    time: new Date().toISOString()
+// Handle shutdown signals
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received with process details:', {
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    healthChecks: healthCheckCount,
+    time: new Date().toISOString(),
+    startupProblems
   });
-  serverShutdownInitiated = true;
-  shutdown('unhandledRejection');
+  shutdown('SIGTERM');
 });
 
 // Graceful shutdown function
@@ -228,7 +300,8 @@ const shutdown = (signal) => {
     uptime: Math.round(uptimeSeconds) + 's',
     healthChecks: healthCheckCount,
     lastHealthCheck: lastHealthCheckTime ? lastHealthCheckTime.toISOString() : 'none',
-    memory: process.memoryUsage()
+    memory: process.memoryUsage(),
+    startupProblems
   });
 
   serverShutdownInitiated = true;
@@ -245,48 +318,3 @@ const shutdown = (signal) => {
     process.exit(1);
   }, 10000);
 };
-
-// Start server
-const port = process.env.PORT || 5000;
-const server = app.listen(port, '0.0.0.0', () => {
-  const serverStartTime = new Date();
-  const startupDuration = (serverStartTime - startTime) / 1000;
-
-  console.log('Server startup details:', {
-    startTime: startTime.toISOString(),
-    serverReady: serverStartTime.toISOString(),
-    startupDuration: Math.round(startupDuration * 1000) + 'ms',
-    port: port,
-    environment: {
-      NODE_ENV: process.env.NODE_ENV,
-      CLIENT_URL: process.env.CLIENT_URL,
-      REDIRECT_URI: process.env.REDIRECT_URI,
-      CORS_ORIGIN: corsOptions.origin
-    }
-  });
-
-  // Mark server as ready
-  isServerReady = true;
-  console.log('Server is ready to accept requests');
-});
-
-// Handle shutdown signals
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received with process details:', {
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    healthChecks: healthCheckCount,
-    time: new Date().toISOString()
-  });
-  shutdown('SIGTERM');
-});
-
-process.on('SIGINT', () => {
-  console.log('SIGINT received with process details:', {
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    healthChecks: healthCheckCount,
-    time: new Date().toISOString()
-  });
-  shutdown('SIGINT');
-});
