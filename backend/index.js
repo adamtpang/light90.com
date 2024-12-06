@@ -10,55 +10,25 @@ const axios = require('axios');
 const startTime = new Date();
 console.log('Process starting at:', startTime.toISOString());
 
-// Log process info
-console.log('Process Info:', {
-  pid: process.pid,
-  platform: process.platform,
-  version: process.version,
-  memory: process.memoryUsage(),
-  env: process.env.NODE_ENV,
-  cwd: process.cwd(),
-  user: process.env.USER || process.env.USERNAME
-});
-
 // Clean environment variables
-const cleanEnvVars = () => {
-  const cleaned = {};
-  Object.keys(process.env).forEach(key => {
-    if (typeof process.env[key] === 'string') {
-      // Remove all non-alphanumeric characters from the end of the string
-      cleaned[key] = process.env[key].replace(/[^a-zA-Z0-9]$/g, '').trim();
-      process.env[key] = cleaned[key];
+Object.keys(process.env).forEach(key => {
+  if (typeof process.env[key] === 'string') {
+    const originalValue = process.env[key];
+    const cleanedValue = process.env[key].replace(/[;,'"]+/g, '').trim();
+    if (originalValue !== cleanedValue) {
+      console.log(`Cleaned env var ${key}: "${originalValue}" -> "${cleanedValue}"`);
     }
-  });
-  return cleaned;
-};
-
-// Clean and validate environment variables
-const cleaned = cleanEnvVars();
-console.log('Cleaned environment variables:', {
-  NODE_ENV: cleaned.NODE_ENV,
-  PORT: cleaned.PORT,
-  CLIENT_URL: cleaned.CLIENT_URL,
-  REDIRECT_URI: cleaned.REDIRECT_URI
+    process.env[key] = cleanedValue;
+  }
 });
 
-// Validate required environment variables
-const requiredEnvVars = [
-  'NODE_ENV',
-  'PORT',
-  'CLIENT_URL',
-  'REDIRECT_URI',
-  'WHOOP_CLIENT_ID',
-  'WHOOP_CLIENT_SECRET',
-  'SESSION_SECRET'
-];
-
-const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
-if (missingEnvVars.length > 0) {
-  console.error('Missing required environment variables:', missingEnvVars);
-  process.exit(1);
-}
+// Log cleaned environment variables (without sensitive data)
+console.log('Environment variables loaded:', {
+  NODE_ENV: process.env.NODE_ENV,
+  PORT: process.env.PORT,
+  CLIENT_URL: process.env.CLIENT_URL,
+  REDIRECT_URI: process.env.REDIRECT_URI
+});
 
 const app = express();
 
@@ -67,14 +37,14 @@ app.use(express.json());
 
 // CORS configuration
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production'
-    ? ['https://light90.com', 'https://www.light90.com']
-    : 'http://localhost:3000',
+  origin: 'https://light90.com',
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
-  optionsSuccessStatus: 200
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With']
 };
+
+// Log CORS configuration
+console.log('CORS configuration:', corsOptions);
 
 // Apply CORS middleware
 app.use(cors(corsOptions));
@@ -90,12 +60,16 @@ app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] (${requestId}) ${req.method} ${req.url} - Starting`, {
     headers: req.headers,
     query: req.query,
-    origin: req.get('origin')
+    origin: req.get('origin'),
+    corsOrigin: corsOptions.origin
   });
 
   res.on('finish', () => {
     const duration = Date.now() - start;
-    console.log(`[${new Date().toISOString()}] (${requestId}) ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
+    console.log(`[${new Date().toISOString()}] (${requestId}) ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`, {
+      origin: req.get('origin'),
+      'access-control-allow-origin': res.get('access-control-allow-origin')
+    });
   });
 
   next();
@@ -129,33 +103,6 @@ let isServerReady = false;
 let serverShutdownInitiated = false;
 let lastHealthCheckTime = null;
 let healthCheckCount = 0;
-let startupProblems = [];
-
-// Container readiness check
-const checkContainerReadiness = () => {
-  const problems = [];
-
-  // Check environment
-  if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'development') {
-    problems.push(`Invalid NODE_ENV: ${process.env.NODE_ENV}`);
-  }
-
-  // Check port
-  const port = parseInt(process.env.PORT);
-  if (isNaN(port) || port < 1 || port > 65535) {
-    problems.push(`Invalid PORT: ${process.env.PORT}`);
-  }
-
-  // Check URLs
-  try {
-    new URL(process.env.CLIENT_URL);
-    new URL(process.env.REDIRECT_URI);
-  } catch (error) {
-    problems.push(`Invalid URL format: ${error.message}`);
-  }
-
-  return problems;
-};
 
 // Routes
 app.get('/', (req, res) => {
@@ -172,9 +119,6 @@ app.get('/health', (req, res) => {
   const uptime = process.uptime();
   const timeSinceStart = (Date.now() - startTime.getTime()) / 1000;
 
-  // Check container readiness
-  const currentProblems = checkContainerReadiness();
-
   console.log('Health check details:', {
     checkNumber: healthCheckCount,
     uptime: Math.round(uptime) + 's',
@@ -182,9 +126,10 @@ app.get('/health', (req, res) => {
     serverReady: isServerReady,
     shutdownInitiated: serverShutdownInitiated,
     lastCheck: lastHealthCheckTime.toISOString(),
-    problems: currentProblems
+    corsOrigin: corsOptions.origin
   });
 
+  if (serverShutdownInitiated) {
   if (currentProblems.length > 0) {
     console.error('Container health problems:', currentProblems);
     return res.status(503).json({
