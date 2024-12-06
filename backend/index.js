@@ -52,14 +52,10 @@ const app = express();
 const redisClient = createClient({
   url: redisUrl,
   socket: {
-    connectTimeout: 10000,
+    connectTimeout: 30000,
     reconnectStrategy: (retries) => {
       console.log(`Redis reconnect attempt ${retries}`);
-      if (retries > 10) {
-        console.error('Max Redis reconnection attempts reached');
-        return new Error('Max Redis reconnection attempts reached');
-      }
-      return Math.min(retries * 100, 3000);
+      return Math.min(retries * 500, 10000);
     }
   }
 });
@@ -79,22 +75,89 @@ redisClient.on('ready', () => console.log('Redis client ready'));
 redisClient.on('reconnecting', () => console.log('Redis client reconnecting'));
 redisClient.on('end', () => console.log('Redis client connection ended'));
 
-// Connect to Redis
+// Connect to Redis and start server only after connection or with fallback
 (async () => {
+  let redisConnected = false;
+
   try {
     console.log('Attempting to connect to Redis with URL pattern:',
       process.env.REDIS_URL.replace(/\/\/[^@]+@/, '//***:***@')
     );
     await redisClient.connect();
+    redisConnected = true;
   } catch (error) {
-    console.error('Failed to connect to Redis:', {
+    console.error('Initial Redis connection failed:', {
       message: error.message,
       stack: error.stack,
-      code: error.code,
-      details: error
+      code: error.code
     });
-    // Don't exit process, allow the reconnection strategy to work
-    // process.exit(1);
+    // Continue without Redis - will keep retrying in background
+  }
+
+  // Configure session with Redis or fallback to memory store
+  const sessionConfig = {
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === 'production',
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+    }
+  };
+
+  if (redisConnected) {
+    sessionConfig.store = new RedisStore({ client: redisClient });
+  } else {
+    console.warn('Using memory session store as fallback - sessions will be lost on server restart');
+  }
+
+  app.use(session(sessionConfig));
+
+  // Start server
+  const PORT = process.env.PORT || 8080;
+  try {
+    const server = app.listen(PORT, '0.0.0.0', () => {
+      console.log('=== Server Started ===');
+      console.log('Environment:', {
+        NODE_ENV: process.env.NODE_ENV,
+        PORT: process.env.PORT,
+        CLIENT_URL: process.env.CLIENT_URL,
+        REDIRECT_URI: process.env.REDIRECT_URI,
+        CORS_ORIGIN: corsOptions.origin,
+        REDIS_CONNECTED: redisConnected
+      });
+      console.log('===================');
+    });
+
+    // Add server error handler
+    server.on('error', (error) => {
+      console.error('Server error:', {
+        message: error.message,
+        stack: error.stack,
+        code: error.code
+      });
+    });
+
+    // Graceful shutdown
+    process.on('SIGTERM', () => {
+      console.log('SIGTERM received - graceful shutdown');
+      server.close(async () => {
+        console.log('Server closed');
+        if (redisConnected) {
+          await redisClient.quit();
+        }
+        process.exit(0);
+      });
+    });
+
+  } catch (error) {
+    console.error('Failed to start server:', {
+      message: error.message,
+      stack: error.stack
+    });
+    process.exit(1);
   }
 })();
 
@@ -116,20 +179,6 @@ app.use(cors(corsOptions));
 
 // Add CORS preflight
 app.options('*', cors(corsOptions));
-
-// Session configuration with Redis
-app.use(session({
-  store: new RedisStore({ client: redisClient }),
-  secret: process.env.SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
-  }
-}));
 
 // Initialize Passport
 app.use(passport.initialize());
@@ -318,39 +367,3 @@ app.use((req, res) => {
     path: req.path
   });
 });
-
-// Start server
-const PORT = process.env.PORT || 8080;
-
-try {
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log('=== Server Started ===');
-    console.log('Environment:', {
-      NODE_ENV: process.env.NODE_ENV,
-      PORT: process.env.PORT,
-      CLIENT_URL: process.env.CLIENT_URL,
-      REDIRECT_URI: process.env.REDIRECT_URI,
-      CORS_ORIGIN: corsOptions.origin,
-      REDIS_CONNECTED: redisClient.isOpen
-    });
-    console.log('===================');
-  });
-
-  // Add server error handler
-  server.on('error', (error) => {
-    console.error('Server error:', {
-      message: error.message,
-      stack: error.stack,
-      code: error.code
-    });
-    if (process.env.NODE_ENV === 'production') {
-      process.exit(1);
-    }
-  });
-} catch (error) {
-  console.error('Failed to start server:', {
-    message: error.message,
-    stack: error.stack
-  });
-  process.exit(1);
-}
