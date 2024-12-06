@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Backend for light90.com",
   "main": "index.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js"
@@ -21,10 +22,5 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "private": true,
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/adampangelinan/light90.com"
   }
 }
