@@ -3,7 +3,7 @@ builder = "nixpacks"
 buildCommand = "npm ci"
 
 [deploy]
-startCommand = "node index.js"
+startCommand = "node --max-old-space-size=512 index.js"
 healthcheckPath = "/health"
 healthcheckTimeout = 5
 
