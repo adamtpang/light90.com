@@ -60,6 +60,9 @@ const redisClient = createClient({
   }
 });
 
+let redisConnected = false;
+let serverReady = false;
+
 redisClient.on('error', (err) => {
   console.error('Redis Client Error:', {
     message: err.message,
@@ -68,23 +71,62 @@ redisClient.on('error', (err) => {
     details: err,
     currentUrl: process.env.REDIS_URL ? process.env.REDIS_URL.replace(/\/\/[^@]+@/, '//***:***@') : 'not set'
   });
+  redisConnected = false;
 });
 
-redisClient.on('connect', () => console.log('Connected to Redis'));
-redisClient.on('ready', () => console.log('Redis client ready'));
-redisClient.on('reconnecting', () => console.log('Redis client reconnecting'));
-redisClient.on('end', () => console.log('Redis client connection ended'));
+redisClient.on('connect', () => {
+  console.log('Connected to Redis');
+  redisConnected = true;
+});
 
-// Connect to Redis and start server only after connection or with fallback
+redisClient.on('ready', () => {
+  console.log('Redis client ready');
+  redisConnected = true;
+});
+
+redisClient.on('reconnecting', () => {
+  console.log('Redis client reconnecting');
+  redisConnected = false;
+});
+
+redisClient.on('end', () => {
+  console.log('Redis client connection ended');
+  redisConnected = false;
+});
+
+// Enhanced health check endpoint
+app.get('/health', async (req, res) => {
+  const status = {
+    status: serverReady ? 'ok' : 'starting',
+    time: new Date().toISOString(),
+    env: process.env.NODE_ENV,
+    redis: {
+      connected: redisConnected,
+      ready: redisClient.isReady
+    },
+    uptime: process.uptime()
+  };
+
+  // If Redis is required and not connected, return 503
+  if (!redisConnected && process.env.REQUIRE_REDIS === 'true') {
+    res.status(503).json({
+      ...status,
+      status: 'unhealthy',
+      message: 'Redis connection required but not available'
+    });
+    return;
+  }
+
+  res.json(status);
+});
+
+// Connect to Redis and start server
 (async () => {
-  let redisConnected = false;
-
   try {
     console.log('Attempting to connect to Redis with URL pattern:',
       process.env.REDIS_URL.replace(/\/\/[^@]+@/, '//***:***@')
     );
     await redisClient.connect();
-    redisConnected = true;
   } catch (error) {
     console.error('Initial Redis connection failed:', {
       message: error.message,
@@ -102,13 +144,14 @@ redisClient.on('end', () => console.log('Redis client connection ended'));
     cookie: {
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      maxAge: 24 * 60 * 60 * 1000,
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
     }
   };
 
   if (redisConnected) {
     sessionConfig.store = new RedisStore({ client: redisClient });
+    console.log('Using Redis session store');
   } else {
     console.warn('Using memory session store as fallback - sessions will be lost on server restart');
   }
@@ -117,49 +160,69 @@ redisClient.on('end', () => console.log('Redis client connection ended'));
 
   // Start server
   const PORT = process.env.PORT || 8080;
-  try {
-    const server = app.listen(PORT, '0.0.0.0', () => {
-      console.log('=== Server Started ===');
-      console.log('Environment:', {
-        NODE_ENV: process.env.NODE_ENV,
-        PORT: process.env.PORT,
-        CLIENT_URL: process.env.CLIENT_URL,
-        REDIRECT_URI: process.env.REDIRECT_URI,
-        CORS_ORIGIN: corsOptions.origin,
-        REDIS_CONNECTED: redisConnected
-      });
-      console.log('===================');
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    serverReady = true;
+    console.log('=== Server Started ===');
+    console.log('Environment:', {
+      NODE_ENV: process.env.NODE_ENV,
+      PORT: process.env.PORT,
+      CLIENT_URL: process.env.CLIENT_URL,
+      REDIRECT_URI: process.env.REDIRECT_URI,
+      CORS_ORIGIN: corsOptions.origin,
+      REDIS_CONNECTED: redisConnected
     });
+    console.log('===================');
+  });
 
-    // Add server error handler
-    server.on('error', (error) => {
-      console.error('Server error:', {
-        message: error.message,
-        stack: error.stack,
-        code: error.code
-      });
-    });
+  // Graceful shutdown handling
+  const shutdown = async (signal) => {
+    console.log(`${signal} received - starting graceful shutdown`);
+    serverReady = false;
 
-    // Graceful shutdown
-    process.on('SIGTERM', () => {
-      console.log('SIGTERM received - graceful shutdown');
-      server.close(async () => {
-        console.log('Server closed');
-        if (redisConnected) {
+    // Stop accepting new connections
+    server.close(async () => {
+      console.log('Server closed');
+
+      // Close Redis connection if connected
+      if (redisConnected) {
+        try {
           await redisClient.quit();
+          console.log('Redis connection closed');
+        } catch (error) {
+          console.error('Error closing Redis connection:', error);
         }
-        process.exit(0);
-      });
+      }
+
+      console.log('Graceful shutdown completed');
+      process.exit(0);
     });
 
-  } catch (error) {
-    console.error('Failed to start server:', {
-      message: error.message,
-      stack: error.stack
-    });
-    process.exit(1);
-  }
-})();
+    // Force exit after 10 seconds
+    setTimeout(() => {
+      console.error('Forced shutdown after timeout');
+      process.exit(1);
+    }, 10000);
+  };
+
+  // Handle various shutdown signals
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGUSR2', () => shutdown('SIGUSR2')); // For nodemon restarts
+
+  // Handle uncaught errors
+  process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
+    shutdown('UNCAUGHT_EXCEPTION');
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    shutdown('UNHANDLED_REJECTION');
+  });
+})().catch(error => {
+  console.error('Fatal error during startup:', error);
+  process.exit(1);
+});
 
 // Basic middleware
 app.use(express.json());
