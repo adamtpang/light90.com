@@ -33,11 +33,24 @@ if (missingEnvVars.length > 0) {
   process.exit(1);
 }
 
+// Validate Redis URL format
+const redisUrl = process.env.REDIS_URL;
+console.log('Environment variables loaded:', {
+  NODE_ENV: process.env.NODE_ENV,
+  REDIS_URL_SET: !!process.env.REDIS_URL,
+  REDIS_URL_PATTERN: redisUrl ? redisUrl.replace(/\/\/[^@]+@/, '//***:***@') : 'not set'
+});
+
+if (!redisUrl || !redisUrl.startsWith('redis://')) {
+  console.error('Invalid REDIS_URL format. Expected redis:// but got:', redisUrl ? redisUrl.substring(0, 10) + '...' : 'undefined');
+  process.exit(1);
+}
+
 const app = express();
 
 // Initialize Redis client
 const redisClient = createClient({
-  url: process.env.REDIS_URL,
+  url: redisUrl,
   socket: {
     connectTimeout: 10000,
     reconnectStrategy: (retries) => {
@@ -56,7 +69,8 @@ redisClient.on('error', (err) => {
     message: err.message,
     stack: err.stack,
     code: err.code,
-    details: err
+    details: err,
+    currentUrl: process.env.REDIS_URL ? process.env.REDIS_URL.replace(/\/\/[^@]+@/, '//***:***@') : 'not set'
   });
 });
 
