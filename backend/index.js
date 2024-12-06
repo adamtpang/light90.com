@@ -50,6 +50,43 @@ console.log('Environment variables loaded:', {
 
 const app = express();
 
+// Redis client setup
+let redisClient;
+let sessionStore;
+
+if (process.env.NODE_ENV === 'production') {
+  console.log('Setting up Redis client for production...');
+  redisClient = createClient({
+    url: process.env.REDIS_URL,
+    socket: {
+      connectTimeout: 20000,
+      keepAlive: 5000,
+      reconnectStrategy: (retries) => {
+        if (retries > 10) {
+          console.error('Redis connection failed after 10 retries');
+          return new Error('Redis connection failed');
+        }
+        return Math.min(retries * 100, 3000);
+      }
+    }
+  });
+
+  redisClient.on('error', (err) => {
+    console.error('Redis Client Error:', err);
+  });
+
+  redisClient.on('connect', () => {
+    console.log('Redis client connected successfully');
+  });
+
+  redisClient.connect().catch(console.error);
+
+  sessionStore = new RedisStore({ client: redisClient });
+} else {
+  console.log('Using MemoryStore for development');
+  sessionStore = new session.MemoryStore();
+}
+
 // Basic middleware
 app.use(express.json());
 
@@ -69,6 +106,7 @@ app.options('*', cors(corsOptions));
 
 // Configure session middleware
 const sessionConfig = {
+  store: sessionStore,
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
@@ -81,7 +119,7 @@ const sessionConfig = {
   }
 };
 
-// Apply session middleware (will update store later)
+// Apply session middleware
 app.use(session(sessionConfig));
 
 // Initialize Passport
@@ -223,44 +261,13 @@ app.use((req, res) => {
   });
 });
 
-// Initialize Redis client
-const redisClient = createClient({
-  url: process.env.REDIS_URL,
-  socket: {
-    connectTimeout: 5000,
-    keepAlive: 5000,
-    tls: process.env.NODE_ENV === 'production',
-    rejectUnauthorized: false
+// Graceful shutdown handler
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received. Closing Redis connection...');
+  if (redisClient) {
+    await redisClient.quit();
   }
-});
-
-let redisConnected = false;
-let serverReady = false;
-let isShuttingDown = false;
-
-// Redis event handlers
-redisClient.on('error', (err) => {
-  console.error('Redis Client Error:', {
-    message: err.message,
-    stack: err.stack,
-    code: err.code
-  });
-  redisConnected = false;
-});
-
-redisClient.on('connect', () => {
-  console.log('Connected to Redis at:', new Date().toISOString());
-  redisConnected = true;
-});
-
-redisClient.on('ready', () => {
-  console.log('Redis client ready at:', new Date().toISOString());
-  redisConnected = true;
-});
-
-redisClient.on('end', () => {
-  console.log('Redis client connection ended at:', new Date().toISOString());
-  redisConnected = false;
+  process.exit(0);
 });
 
 // Start server and attempt Redis connection
