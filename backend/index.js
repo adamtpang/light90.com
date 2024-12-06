@@ -253,4 +253,10 @@ process.on('SIGTERM', () => {
     console.log('Server closed');
     process.exit(0);
   });
+
+  // Force close after 10 seconds
+  setTimeout(() => {
+    console.log('Forcing shutdown after timeout');
+    process.exit(1);
+  }, 10000);
 });
