@@ -94,6 +94,11 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 app.get('/auth/status', (req, res) => {
   res.json({
     authenticated: req.isAuthenticated(),
