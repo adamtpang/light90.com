@@ -59,29 +59,52 @@ if (process.env.NODE_ENV === 'production') {
   redisClient = createClient({
     url: process.env.REDIS_URL,
     socket: {
-      connectTimeout: 20000,
+      connectTimeout: 30000,
       keepAlive: 5000,
+      tls: true,
+      rejectUnauthorized: false,
       reconnectStrategy: (retries) => {
         if (retries > 10) {
           console.error('Redis connection failed after 10 retries');
           return new Error('Redis connection failed');
         }
-        return Math.min(retries * 100, 3000);
+        const delay = Math.min(retries * 100, 3000);
+        console.log(`Redis reconnect attempt ${retries + 1} in ${delay}ms`);
+        return delay;
       }
     }
   });
 
   redisClient.on('error', (err) => {
-    console.error('Redis Client Error:', err);
+    console.error('Redis Client Error:', {
+      message: err.message,
+      stack: err.stack,
+      code: err.code
+    });
   });
 
   redisClient.on('connect', () => {
     console.log('Redis client connected successfully');
   });
 
-  redisClient.connect().catch(console.error);
+  redisClient.on('ready', () => {
+    console.log('Redis client ready to accept commands');
+  });
 
-  sessionStore = new RedisStore({ client: redisClient });
+  redisClient.on('reconnecting', () => {
+    console.log('Redis client attempting to reconnect...');
+  });
+
+  try {
+    await redisClient.connect();
+    console.log('Redis connection established');
+    sessionStore = new RedisStore({ client: redisClient });
+    console.log('Redis session store created');
+  } catch (error) {
+    console.error('Failed to connect to Redis:', error);
+    console.log('Falling back to memory store');
+    sessionStore = new session.MemoryStore();
+  }
 } else {
   console.log('Using MemoryStore for development');
   sessionStore = new session.MemoryStore();
@@ -111,6 +134,7 @@ const sessionConfig = {
   resave: false,
   saveUninitialized: false,
   rolling: true,
+  proxy: true, // Trust the reverse proxy
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
@@ -265,7 +289,12 @@ app.use((req, res) => {
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received. Closing Redis connection...');
   if (redisClient) {
-    await redisClient.quit();
+    try {
+      await redisClient.quit();
+      console.log('Redis connection closed gracefully');
+    } catch (error) {
+      console.error('Error closing Redis connection:', error);
+    }
   }
   process.exit(0);
 });
