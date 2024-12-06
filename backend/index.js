@@ -10,11 +10,8 @@ const axios = require('axios');
 Object.keys(process.env).forEach(key => {
   if (typeof process.env[key] === 'string') {
     process.env[key] = process.env[key]
-      .replace(/;$/, '')        // Remove trailing semicolon
-      .replace(/,$/, '')        // Remove trailing comma
-      .replace(/^['"]/, '')     // Remove leading quotes
-      .replace(/['"]$/, '')     // Remove trailing quotes
-      .trim();                  // Remove whitespace
+      .replace(/[;,'"]+$/, '')  // Remove trailing semicolons, commas, quotes
+      .trim();
   }
 });
 
@@ -50,10 +47,13 @@ app.use(express.json());
 
 // CORS configuration
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' ? 'https://light90.com' : 'http://localhost:3000',
+  origin: process.env.NODE_ENV === 'production'
+    ? ['https://light90.com', 'https://www.light90.com'].map(origin => origin.trim())
+    : 'http://localhost:3000',
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+  optionsSuccessStatus: 200
 };
 
 // Apply CORS middleware
@@ -227,22 +227,20 @@ app.get('/auth/logout', (req, res) => {
 
 // Start server
 const port = process.env.PORT || 5000;
-const server = app.listen(port, () => {
+const server = app.listen(port, '0.0.0.0', () => {
   console.log(`=== Server Started on port ${port} ===`);
   console.log('Environment:', {
     NODE_ENV: process.env.NODE_ENV,
     PORT: port,
     CLIENT_URL: process.env.CLIENT_URL,
     REDIRECT_URI: process.env.REDIRECT_URI,
-    CORS_ORIGIN: corsOptions.origin
+    CORS_ORIGIN: Array.isArray(corsOptions.origin) ? corsOptions.origin : corsOptions.origin
   });
   console.log('===================');
 
-  // Mark server as ready after a short delay to ensure all middleware is initialized
-  setTimeout(() => {
-    isServerReady = true;
-    console.log('Server is ready to accept requests');
-  }, 1000);
+  // Mark server as ready immediately since all middleware is already initialized
+  isServerReady = true;
+  console.log('Server is ready to accept requests');
 });
 
 // Graceful shutdown
