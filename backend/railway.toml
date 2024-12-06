@@ -7,8 +7,6 @@ startCommand = "node --max-old-space-size=512 index.js"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 healthcheckInterval = 15
-restartPolicyType = "on-failure"
-restartPolicyMaxRetries = 3
 
 [deploy.env]
 NODE_ENV = "production"
