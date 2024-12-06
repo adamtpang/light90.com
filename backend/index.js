@@ -50,13 +50,18 @@ const app = express();
 
 // Initialize Redis client
 const redisClient = createClient({
-  url: redisUrl,
+  url: process.env.REDIS_URL,
   socket: {
-    connectTimeout: 30000,
+    connectTimeout: 5000,
     keepAlive: 5000,
+    tls: false,
     reconnectStrategy: (retries) => {
       console.log(`Redis reconnect attempt ${retries}`);
-      return Math.min(retries * 500, 10000);
+      if (retries > 3) {
+        console.log('Max Redis reconnection attempts reached, continuing with memory store');
+        return false;
+      }
+      return Math.min(retries * 500, 3000);
     }
   }
 });
@@ -83,8 +88,8 @@ const logError = (context, error) => {
     stack: error.stack,
     code: error.code,
     time: new Date().toISOString(),
-    memory: process.memoryUsage(),
-    uptime: process.uptime()
+    redisUrl: process.env.REDIS_URL ? process.env.REDIS_URL.replace(/\/\/[^@]+@/, '//***:***@') : 'not set',
+    nodeEnv: process.env.NODE_ENV
   });
 };
 
@@ -146,10 +151,21 @@ app.get('/health', async (req, res) => {
     console.log('Attempting to connect to Redis with URL pattern:',
       process.env.REDIS_URL.replace(/\/\/[^@]+@/, '//***:***@')
     );
-    await redisClient.connect();
+
+    // Add timeout to Redis connection attempt
+    const connectWithTimeout = async () => {
+      return Promise.race([
+        redisClient.connect(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Redis connection timeout')), 5000)
+        )
+      ]);
+    };
+
+    await connectWithTimeout();
   } catch (error) {
     logError('Redis Connection', error);
-    // Continue without Redis - will keep retrying in background
+    console.log('Continuing without Redis - using memory store');
   }
 
   // Configure session with Redis or fallback to memory store
@@ -180,7 +196,7 @@ app.get('/health', async (req, res) => {
   app.use(session(sessionConfig));
 
   // Start server
-  const PORT = process.env.PORT || 8080;
+  const PORT = process.env.PORT || 5000;
   const server = app.listen(PORT, '0.0.0.0', () => {
     serverReady = true;
     const startupTime = Date.now() - startTime;
@@ -270,7 +286,7 @@ app.use(express.json());
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production'
     ? 'https://light90.com'
-    : 'http://localhost:3000',
+    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With']
@@ -282,32 +298,38 @@ app.use(cors(corsOptions));
 // Add CORS preflight
 app.options('*', cors(corsOptions));
 
-// Initialize Passport
+// Configure session with Redis or fallback to memory store
+const sessionConfig = {
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  rolling: true,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000,
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+  }
+};
+
+// Initialize session middleware immediately
+if (redisConnected) {
+  sessionConfig.store = new RedisStore({
+    client: redisClient,
+    prefix: 'sess:',
+    ttl: 86400 // 1 day
+  });
+  console.log('Using Redis session store');
+} else {
+  console.warn('Using memory session store as fallback - sessions will be lost on server restart');
+}
+
+// Apply session middleware
+app.use(session(sessionConfig));
+
+// Initialize Passport and restore authentication state from session
 app.use(passport.initialize());
 app.use(passport.session());
-
-// Request logging
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`, {
-    origin: req.headers.origin,
-    headers: req.headers
-  });
-  next();
-});
-
-// Response logging middleware
-app.use((req, res, next) => {
-  const originalSend = res.send;
-  res.send = function(data) {
-    console.log(`[${new Date().toISOString()}] Response:`, {
-      path: req.path,
-      statusCode: res.statusCode,
-      headers: res.getHeaders()
-    });
-    return originalSend.apply(res, arguments);
-  };
-  next();
-});
 
 // Passport serialization
 passport.serializeUser((user, done) => {
