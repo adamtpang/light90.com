@@ -5,8 +5,6 @@ const passport = require('passport');
 const session = require('express-session');
 const OAuth2Strategy = require('passport-oauth2');
 const axios = require('axios');
-const { createClient } = require('redis');
-const RedisStore = require('connect-redis').default;
 
 // Clean environment variables (remove any trailing semicolons, quotes, and commas)
 Object.keys(process.env).forEach(key => {
@@ -28,8 +26,7 @@ const requiredEnvVars = [
   'REDIRECT_URI',
   'WHOOP_CLIENT_ID',
   'WHOOP_CLIENT_SECRET',
-  'SESSION_SECRET',
-  'REDIS_URL'
+  'SESSION_SECRET'
 ];
 
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
@@ -43,72 +40,10 @@ console.log('Environment variables loaded:', {
   NODE_ENV: process.env.NODE_ENV,
   PORT: process.env.PORT,
   CLIENT_URL: process.env.CLIENT_URL,
-  REDIRECT_URI: process.env.REDIRECT_URI,
-  REDIS_URL_SET: !!process.env.REDIS_URL,
-  REDIS_URL_PATTERN: process.env.REDIS_URL ? process.env.REDIS_URL.replace(/\/\/[^@]+@/, '//***:***@') : 'not set'
+  REDIRECT_URI: process.env.REDIRECT_URI
 });
 
 const app = express();
-
-// Redis client setup
-let redisClient;
-let sessionStore;
-
-if (process.env.NODE_ENV === 'production') {
-  console.log('Setting up Redis client for production...');
-  redisClient = createClient({
-    url: process.env.REDIS_URL,
-    socket: {
-      connectTimeout: 30000,
-      keepAlive: 5000,
-      tls: true,
-      rejectUnauthorized: false,
-      reconnectStrategy: (retries) => {
-        if (retries > 10) {
-          console.error('Redis connection failed after 10 retries');
-          return new Error('Redis connection failed');
-        }
-        const delay = Math.min(retries * 100, 3000);
-        console.log(`Redis reconnect attempt ${retries + 1} in ${delay}ms`);
-        return delay;
-      }
-    }
-  });
-
-  redisClient.on('error', (err) => {
-    console.error('Redis Client Error:', {
-      message: err.message,
-      stack: err.stack,
-      code: err.code
-    });
-  });
-
-  redisClient.on('connect', () => {
-    console.log('Redis client connected successfully');
-  });
-
-  redisClient.on('ready', () => {
-    console.log('Redis client ready to accept commands');
-  });
-
-  redisClient.on('reconnecting', () => {
-    console.log('Redis client attempting to reconnect...');
-  });
-
-  try {
-    await redisClient.connect();
-    console.log('Redis connection established');
-    sessionStore = new RedisStore({ client: redisClient });
-    console.log('Redis session store created');
-  } catch (error) {
-    console.error('Failed to connect to Redis:', error);
-    console.log('Falling back to memory store');
-    sessionStore = new session.MemoryStore();
-  }
-} else {
-  console.log('Using MemoryStore for development');
-  sessionStore = new session.MemoryStore();
-}
 
 // Basic middleware
 app.use(express.json());
@@ -127,9 +62,9 @@ app.use(cors(corsOptions));
 // Add CORS preflight
 app.options('*', cors(corsOptions));
 
-// Configure session middleware
+// Configure session middleware with MemoryStore
 const sessionConfig = {
-  store: sessionStore,
+  store: new session.MemoryStore(),
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
@@ -208,16 +143,48 @@ const whoopStrategy = new OAuth2Strategy(
 
 passport.use('whoop', whoopStrategy);
 
+// Server readiness flag
+let isServerReady = false;
+
 // Routes
 app.get('/', (req, res) => {
   res.json({ status: 'ok' });
 });
 
 app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    time: new Date().toISOString()
-  });
+  if (!isServerReady) {
+    console.log('Health check failed - server not ready');
+    return res.status(503).json({
+      status: 'error',
+      message: 'Server starting up',
+      time: new Date().toISOString()
+    });
+  }
+
+  try {
+    // Basic health checks
+    const memoryUsage = process.memoryUsage();
+    const uptime = process.uptime();
+
+    console.log('Health check passed:', {
+      memoryUsage: Math.round(memoryUsage.heapUsed / 1024 / 1024) + 'MB',
+      uptime: Math.round(uptime) + 's'
+    });
+
+    res.status(200).json({
+      status: 'ok',
+      time: new Date().toISOString(),
+      uptime: uptime,
+      memory: memoryUsage
+    });
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(503).json({
+      status: 'error',
+      message: 'Health check failed',
+      time: new Date().toISOString()
+    });
+  }
 });
 
 app.get('/auth/status', (req, res) => {
@@ -235,104 +202,55 @@ app.get('/auth/status', (req, res) => {
 app.get('/auth/whoop', (req, res, next) => {
   console.log('Starting WHOOP OAuth flow');
   passport.authenticate('whoop', {
-    scope: ['offline', 'read:sleep', 'read:profile'],
-    state: true,
-    response_type: 'code'
+    scope: ['offline', 'read:sleep', 'read:profile']
   })(req, res, next);
 });
 
 app.get('/auth/whoop/callback',
-  (req, res, next) => {
-    console.log('Received callback with query:', req.query);
-    next();
-  },
-  passport.authenticate('whoop', { session: true }),
+  passport.authenticate('whoop', { failureRedirect: '/auth/failed' }),
   (req, res) => {
-    console.log('OAuth callback successful, redirecting to:', process.env.CLIENT_URL);
+    console.log('OAuth callback successful');
     res.redirect(process.env.CLIENT_URL);
   }
 );
 
-// Error handling
-app.use((err, req, res, next) => {
-  console.error('Error:', {
-    message: err.message,
-    stack: err.stack,
-    path: req.path,
-    method: req.method,
-    origin: req.headers.origin,
-    session: req.session
-  });
+app.get('/auth/failed', (req, res) => {
+  res.status(401).json({ error: 'Authentication failed' });
+});
 
-  res.status(err.status || 500).json({
-    error: process.env.NODE_ENV === 'production' ? 'Internal Server Error' : err.message,
-    path: req.path
+app.get('/auth/logout', (req, res) => {
+  req.logout(() => {
+    console.log('User logged out');
+    res.redirect(process.env.CLIENT_URL);
   });
 });
 
-// 404 handler
-app.use((req, res) => {
-  console.log('404 Not Found:', {
-    path: req.path,
-    method: req.method,
-    origin: req.headers.origin
+// Start server
+const port = process.env.PORT || 5000;
+const server = app.listen(port, () => {
+  console.log(`=== Server Started on port ${port} ===`);
+  console.log('Environment:', {
+    NODE_ENV: process.env.NODE_ENV,
+    PORT: port,
+    CLIENT_URL: process.env.CLIENT_URL,
+    REDIRECT_URI: process.env.REDIRECT_URI,
+    CORS_ORIGIN: corsOptions.origin
   });
+  console.log('===================');
 
-  res.status(404).json({
-    error: 'Route not found',
-    method: req.method,
-    path: req.path
-  });
+  // Mark server as ready after a short delay to ensure all middleware is initialized
+  setTimeout(() => {
+    isServerReady = true;
+    console.log('Server is ready to accept requests');
+  }, 1000);
 });
 
-// Graceful shutdown handler
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received. Closing Redis connection...');
-  if (redisClient) {
-    try {
-      await redisClient.quit();
-      console.log('Redis connection closed gracefully');
-    } catch (error) {
-      console.error('Error closing Redis connection:', error);
-    }
-  }
-  process.exit(0);
-});
-
-// Start server and attempt Redis connection
-(async () => {
-  // Start server immediately with memory store
-  const PORT = process.env.PORT || 5000;
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    serverReady = true;
-    console.log(`=== Server Started on port ${PORT} ===`);
-    console.log('Environment:', {
-      NODE_ENV: process.env.NODE_ENV,
-      PORT: PORT,
-      CLIENT_URL: process.env.CLIENT_URL,
-      REDIRECT_URI: process.env.REDIRECT_URI,
-      CORS_ORIGIN: corsOptions.origin
-    });
-    console.log('===================');
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down gracefully...');
+  isServerReady = false;
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
   });
-
-  // Try to connect to Redis in the background
-  if (process.env.NODE_ENV === 'production') {
-    try {
-      await redisClient.connect();
-      sessionConfig.store = new RedisStore({
-        client: redisClient,
-        prefix: 'sess:',
-        ttl: 86400
-      });
-      console.log('Using Redis session store');
-    } catch (error) {
-      console.warn('Using memory session store as fallback - sessions will be lost on server restart');
-    }
-  } else {
-    console.log('Development mode: Using memory session store');
-  }
-})().catch(error => {
-  console.error('Fatal startup error:', error);
-  process.exit(1);
 });
