@@ -6,12 +6,29 @@ const session = require('express-session');
 const OAuth2Strategy = require('passport-oauth2');
 const axios = require('axios');
 
+// Process start time
+const startTime = new Date();
+console.log('Process starting at:', startTime.toISOString());
+
+// Log process info
+console.log('Process Info:', {
+  pid: process.pid,
+  platform: process.platform,
+  version: process.version,
+  memory: process.memoryUsage(),
+  env: process.env.NODE_ENV
+});
+
 // Clean environment variables more aggressively
 const cleanEnvVars = () => {
   Object.keys(process.env).forEach(key => {
     if (typeof process.env[key] === 'string') {
-      // Remove all trailing punctuation and whitespace
-      process.env[key] = process.env[key].replace(/[;,'"]+/g, '').trim();
+      const originalValue = process.env[key];
+      const cleanedValue = process.env[key].replace(/[;,'"]+/g, '').trim();
+      if (originalValue !== cleanedValue) {
+        console.log(`Cleaned env var ${key}: "${originalValue}" -> "${cleanedValue}"`);
+      }
+      process.env[key] = cleanedValue;
     }
   });
 };
@@ -66,6 +83,19 @@ app.use(cors(corsOptions));
 // Add CORS preflight
 app.options('*', cors(corsOptions));
 
+// Request logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Starting`);
+
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
+  });
+
+  next();
+});
+
 // Configure session middleware with MemoryStore
 const sessionConfig = {
   store: new session.MemoryStore(),
@@ -89,9 +119,11 @@ app.use(session(sessionConfig));
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Server readiness flag
+// Server state tracking
 let isServerReady = false;
 let serverShutdownInitiated = false;
+let lastHealthCheckTime = null;
+let healthCheckCount = 0;
 
 // Routes
 app.get('/', (req, res) => {
@@ -99,6 +131,20 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
+  healthCheckCount++;
+  lastHealthCheckTime = new Date();
+  const uptime = process.uptime();
+  const timeSinceStart = (Date.now() - startTime.getTime()) / 1000;
+
+  console.log('Health check details:', {
+    checkNumber: healthCheckCount,
+    uptime: Math.round(uptime) + 's',
+    timeSinceStart: Math.round(timeSinceStart) + 's',
+    serverReady: isServerReady,
+    shutdownInitiated: serverShutdownInitiated,
+    lastCheck: lastHealthCheckTime.toISOString()
+  });
+
   if (serverShutdownInitiated) {
     console.log('Health check failed - server is shutting down');
     return res.status(503).json({
@@ -120,18 +166,19 @@ app.get('/health', (req, res) => {
   try {
     // Basic health checks
     const memoryUsage = process.memoryUsage();
-    const uptime = process.uptime();
-
-    console.log('Health check passed:', {
+    const processInfo = {
       memoryUsage: Math.round(memoryUsage.heapUsed / 1024 / 1024) + 'MB',
-      uptime: Math.round(uptime) + 's'
-    });
+      uptime: Math.round(uptime) + 's',
+      healthChecks: healthCheckCount,
+      timeSinceStart: Math.round(timeSinceStart) + 's'
+    };
+
+    console.log('Health check passed:', processInfo);
 
     res.status(200).json({
       status: 'ok',
       time: new Date().toISOString(),
-      uptime: uptime,
-      memory: memoryUsage
+      ...processInfo
     });
   } catch (error) {
     console.error('Health check error:', error);
@@ -143,68 +190,52 @@ app.get('/health', (req, res) => {
   }
 });
 
-app.get('/auth/status', (req, res) => {
-  console.log('Auth status check:', {
-    isAuthenticated: req.isAuthenticated(),
-    hasUser: !!req.user,
-    session: req.session
-  });
-  res.json({
-    authenticated: req.isAuthenticated(),
-    user: req.user
-  });
-});
-
-app.get('/auth/whoop', (req, res, next) => {
-  console.log('Starting WHOOP OAuth flow');
-  passport.authenticate('whoop', {
-    scope: ['offline', 'read:sleep', 'read:profile']
-  })(req, res, next);
-});
-
-app.get('/auth/whoop/callback',
-  passport.authenticate('whoop', { failureRedirect: '/auth/failed' }),
-  (req, res) => {
-    console.log('OAuth callback successful');
-    res.redirect(process.env.CLIENT_URL);
-  }
-);
-
-app.get('/auth/failed', (req, res) => {
-  res.status(401).json({ error: 'Authentication failed' });
-});
-
-app.get('/auth/logout', (req, res) => {
-  req.logout(() => {
-    console.log('User logged out');
-    res.redirect(process.env.CLIENT_URL);
-  });
-});
-
 // Process event handlers
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
+  console.error('Uncaught Exception:', {
+    error: error.message,
+    stack: error.stack,
+    time: new Date().toISOString()
+  });
   serverShutdownInitiated = true;
-  shutdown();
+  shutdown('uncaughtException');
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  console.error('Unhandled Rejection:', {
+    reason: reason instanceof Error ? reason.message : reason,
+    stack: reason instanceof Error ? reason.stack : 'No stack trace',
+    time: new Date().toISOString()
+  });
   serverShutdownInitiated = true;
-  shutdown();
+  shutdown('unhandledRejection');
 });
 
 // Graceful shutdown function
-const shutdown = () => {
+const shutdown = (signal) => {
   if (serverShutdownInitiated) {
+    console.log(`Shutdown already initiated, ignoring ${signal}`);
     return;
   }
+
+  const shutdownTime = new Date();
+  const uptimeSeconds = (shutdownTime - startTime) / 1000;
+
+  console.log('Shutdown details:', {
+    signal,
+    startTime: startTime.toISOString(),
+    shutdownTime: shutdownTime.toISOString(),
+    uptime: Math.round(uptimeSeconds) + 's',
+    healthChecks: healthCheckCount,
+    lastHealthCheck: lastHealthCheckTime ? lastHealthCheckTime.toISOString() : 'none',
+    memory: process.memoryUsage()
+  });
+
   serverShutdownInitiated = true;
-  console.log('Shutdown initiated. Closing server...');
   isServerReady = false;
 
   server.close(() => {
-    console.log('Server closed');
+    console.log('Server closed successfully');
     process.exit(0);
   });
 
@@ -218,28 +249,44 @@ const shutdown = () => {
 // Start server
 const port = process.env.PORT || 5000;
 const server = app.listen(port, '0.0.0.0', () => {
-  console.log(`=== Server Started on port ${port} ===`);
-  console.log('Environment:', {
-    NODE_ENV: process.env.NODE_ENV,
-    PORT: port,
-    CLIENT_URL: process.env.CLIENT_URL,
-    REDIRECT_URI: process.env.REDIRECT_URI,
-    CORS_ORIGIN: corsOptions.origin
+  const serverStartTime = new Date();
+  const startupDuration = (serverStartTime - startTime) / 1000;
+
+  console.log('Server startup details:', {
+    startTime: startTime.toISOString(),
+    serverReady: serverStartTime.toISOString(),
+    startupDuration: Math.round(startupDuration * 1000) + 'ms',
+    port: port,
+    environment: {
+      NODE_ENV: process.env.NODE_ENV,
+      CLIENT_URL: process.env.CLIENT_URL,
+      REDIRECT_URI: process.env.REDIRECT_URI,
+      CORS_ORIGIN: corsOptions.origin
+    }
   });
-  console.log('===================');
 
   // Mark server as ready
   isServerReady = true;
   console.log('Server is ready to accept requests');
 });
 
-// Handle graceful shutdown signals
+// Handle shutdown signals
 process.on('SIGTERM', () => {
-  console.log('SIGTERM received');
-  shutdown();
+  console.log('SIGTERM received with process details:', {
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    healthChecks: healthCheckCount,
+    time: new Date().toISOString()
+  });
+  shutdown('SIGTERM');
 });
 
 process.on('SIGINT', () => {
-  console.log('SIGINT received');
-  shutdown();
+  console.log('SIGINT received with process details:', {
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    healthChecks: healthCheckCount,
+    time: new Date().toISOString()
+  });
+  shutdown('SIGINT');
 });
