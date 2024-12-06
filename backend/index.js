@@ -39,20 +39,48 @@ const app = express();
 const redisClient = createClient({
   url: process.env.REDIS_URL,
   socket: {
-    connectTimeout: 10000
+    connectTimeout: 10000,
+    reconnectStrategy: (retries) => {
+      console.log(`Redis reconnect attempt ${retries}`);
+      if (retries > 10) {
+        console.error('Max Redis reconnection attempts reached');
+        return new Error('Max Redis reconnection attempts reached');
+      }
+      return Math.min(retries * 100, 3000);
+    }
   }
 });
 
-redisClient.on('error', (err) => console.error('Redis Client Error:', err));
+redisClient.on('error', (err) => {
+  console.error('Redis Client Error:', {
+    message: err.message,
+    stack: err.stack,
+    code: err.code,
+    details: err
+  });
+});
+
 redisClient.on('connect', () => console.log('Connected to Redis'));
+redisClient.on('ready', () => console.log('Redis client ready'));
+redisClient.on('reconnecting', () => console.log('Redis client reconnecting'));
+redisClient.on('end', () => console.log('Redis client connection ended'));
 
 // Connect to Redis
 (async () => {
   try {
+    console.log('Attempting to connect to Redis with URL pattern:',
+      process.env.REDIS_URL.replace(/\/\/[^@]+@/, '//***:***@')
+    );
     await redisClient.connect();
   } catch (error) {
-    console.error('Failed to connect to Redis:', error);
-    process.exit(1);
+    console.error('Failed to connect to Redis:', {
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      details: error
+    });
+    // Don't exit process, allow the reconnection strategy to work
+    // process.exit(1);
   }
 })();
 
