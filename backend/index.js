@@ -13,7 +13,6 @@ Object.keys(process.env).forEach(key => {
   }
 });
 
-// Log startup info
 console.log('Starting server with environment:', {
   NODE_ENV: process.env.NODE_ENV,
   PORT: process.env.PORT,
@@ -36,18 +35,12 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With']
 };
 
-console.log('CORS configuration:', corsOptions);
-
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
-// Request logging middleware
+// Request logging
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`, {
-    headers: req.headers,
-    origin: req.get('origin'),
-    ip: req.ip
-  });
+  console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
   next();
 });
 
@@ -134,19 +127,16 @@ app.get('/auth/whoop', passport.authenticate('whoop'));
 app.get('/auth/whoop/callback',
   passport.authenticate('whoop', { failureRedirect: '/auth/failed' }),
   (req, res) => {
-    console.log('OAuth callback successful');
     res.redirect(process.env.CLIENT_URL);
   }
 );
 
 app.get('/auth/failed', (req, res) => {
-  console.error('Authentication failed');
   res.status(401).json({ error: 'Authentication failed' });
 });
 
 app.get('/auth/logout', (req, res) => {
   req.logout(() => {
-    console.log('User logged out');
     res.redirect(process.env.CLIENT_URL);
   });
 });
@@ -160,18 +150,17 @@ app.use((err, req, res, next) => {
 // Start server
 const port = process.env.PORT || 5000;
 const server = app.listen(port, '0.0.0.0', () => {
-  console.log(`Server started on port ${port} at ${new Date().toISOString()}`);
-  console.log('Process info:', {
-    pid: process.pid,
-    platform: process.platform,
-    nodeVersion: process.version,
-    memory: process.memoryUsage()
+  console.log(`Server running on port ${port}`);
+  console.log('Environment:', {
+    NODE_ENV: process.env.NODE_ENV,
+    CLIENT_URL: process.env.CLIENT_URL,
+    REDIRECT_URI: process.env.REDIRECT_URI
   });
 });
 
-// Handle all process events
+// Handle shutdown gracefully
 process.on('SIGTERM', () => {
-  console.log(`SIGTERM received at ${new Date().toISOString()}`);
+  console.log('SIGTERM received, shutting down gracefully');
   server.close(() => {
     console.log('Server closed');
     process.exit(0);
