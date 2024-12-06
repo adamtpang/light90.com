@@ -53,6 +53,7 @@ const redisClient = createClient({
   url: redisUrl,
   socket: {
     connectTimeout: 30000,
+    keepAlive: 5000,
     reconnectStrategy: (retries) => {
       console.log(`Redis reconnect attempt ${retries}`);
       return Math.min(retries * 500, 10000);
@@ -62,77 +63,92 @@ const redisClient = createClient({
 
 let redisConnected = false;
 let serverReady = false;
+let isShuttingDown = false;
+
+// Log process memory usage every 30 seconds
+setInterval(() => {
+  const used = process.memoryUsage();
+  console.log('Memory usage:', {
+    rss: `${Math.round(used.rss / 1024 / 1024)}MB`,
+    heapTotal: `${Math.round(used.heapTotal / 1024 / 1024)}MB`,
+    heapUsed: `${Math.round(used.heapUsed / 1024 / 1024)}MB`,
+    external: `${Math.round(used.external / 1024 / 1024)}MB`
+  });
+}, 30000);
+
+// Enhanced error logging
+const logError = (context, error) => {
+  console.error(`Error in ${context}:`, {
+    message: error.message,
+    stack: error.stack,
+    code: error.code,
+    time: new Date().toISOString(),
+    memory: process.memoryUsage(),
+    uptime: process.uptime()
+  });
+};
 
 redisClient.on('error', (err) => {
-  console.error('Redis Client Error:', {
-    message: err.message,
-    stack: err.stack,
-    code: err.code,
-    details: err,
-    currentUrl: process.env.REDIS_URL ? process.env.REDIS_URL.replace(/\/\/[^@]+@/, '//***:***@') : 'not set'
-  });
+  logError('Redis Client', err);
   redisConnected = false;
 });
 
 redisClient.on('connect', () => {
-  console.log('Connected to Redis');
+  console.log('Connected to Redis at:', new Date().toISOString());
   redisConnected = true;
 });
 
 redisClient.on('ready', () => {
-  console.log('Redis client ready');
+  console.log('Redis client ready at:', new Date().toISOString());
   redisConnected = true;
 });
 
 redisClient.on('reconnecting', () => {
-  console.log('Redis client reconnecting');
+  console.log('Redis client reconnecting at:', new Date().toISOString());
   redisConnected = false;
 });
 
 redisClient.on('end', () => {
-  console.log('Redis client connection ended');
+  console.log('Redis client connection ended at:', new Date().toISOString());
   redisConnected = false;
 });
 
 // Enhanced health check endpoint
 app.get('/health', async (req, res) => {
+  const memoryUsage = process.memoryUsage();
   const status = {
-    status: serverReady ? 'ok' : 'starting',
+    status: serverReady && !isShuttingDown ? 'ok' : 'unavailable',
     time: new Date().toISOString(),
     env: process.env.NODE_ENV,
     redis: {
       connected: redisConnected,
       ready: redisClient.isReady
     },
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    memory: {
+      rss: Math.round(memoryUsage.rss / 1024 / 1024),
+      heapTotal: Math.round(memoryUsage.heapTotal / 1024 / 1024),
+      heapUsed: Math.round(memoryUsage.heapUsed / 1024 / 1024)
+    }
   };
 
-  // If Redis is required and not connected, return 503
-  if (!redisConnected && process.env.REQUIRE_REDIS === 'true') {
-    res.status(503).json({
-      ...status,
-      status: 'unhealthy',
-      message: 'Redis connection required but not available'
-    });
-    return;
-  }
-
-  res.json(status);
+  // Return appropriate status code based on service health
+  const statusCode = serverReady && !isShuttingDown ? 200 : 503;
+  res.status(statusCode).json(status);
 });
 
 // Connect to Redis and start server
 (async () => {
+  let startTime = Date.now();
+  console.log('Starting server initialization at:', new Date().toISOString());
+
   try {
     console.log('Attempting to connect to Redis with URL pattern:',
       process.env.REDIS_URL.replace(/\/\/[^@]+@/, '//***:***@')
     );
     await redisClient.connect();
   } catch (error) {
-    console.error('Initial Redis connection failed:', {
-      message: error.message,
-      stack: error.stack,
-      code: error.code
-    });
+    logError('Redis Connection', error);
     // Continue without Redis - will keep retrying in background
   }
 
@@ -141,6 +157,7 @@ app.get('/health', async (req, res) => {
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
+    rolling: true,
     cookie: {
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
@@ -150,7 +167,11 @@ app.get('/health', async (req, res) => {
   };
 
   if (redisConnected) {
-    sessionConfig.store = new RedisStore({ client: redisClient });
+    sessionConfig.store = new RedisStore({
+      client: redisClient,
+      prefix: 'sess:',
+      ttl: 86400 // 1 day
+    });
     console.log('Using Redis session store');
   } else {
     console.warn('Using memory session store as fallback - sessions will be lost on server restart');
@@ -162,26 +183,44 @@ app.get('/health', async (req, res) => {
   const PORT = process.env.PORT || 8080;
   const server = app.listen(PORT, '0.0.0.0', () => {
     serverReady = true;
-    console.log('=== Server Started ===');
+    const startupTime = Date.now() - startTime;
+    console.log(`=== Server Started (took ${startupTime}ms) ===`);
     console.log('Environment:', {
       NODE_ENV: process.env.NODE_ENV,
       PORT: process.env.PORT,
       CLIENT_URL: process.env.CLIENT_URL,
       REDIRECT_URI: process.env.REDIRECT_URI,
       CORS_ORIGIN: corsOptions.origin,
-      REDIS_CONNECTED: redisConnected
+      REDIS_CONNECTED: redisConnected,
+      START_TIME: new Date().toISOString()
     });
     console.log('===================');
   });
 
+  // Keep track of active connections
+  let connections = new Set();
+  server.on('connection', (conn) => {
+    connections.add(conn);
+    conn.on('close', () => connections.delete(conn));
+  });
+
   // Graceful shutdown handling
   const shutdown = async (signal) => {
-    console.log(`${signal} received - starting graceful shutdown`);
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+
+    console.log(`\n${signal} received at ${new Date().toISOString()} - starting graceful shutdown`);
     serverReady = false;
 
     // Stop accepting new connections
     server.close(async () => {
-      console.log('Server closed');
+      console.log(`Server closed at ${new Date().toISOString()}`);
+
+      // Close all existing connections
+      for (const conn of connections) {
+        conn.end();
+      }
+      connections.clear();
 
       // Close Redis connection if connected
       if (redisConnected) {
@@ -189,7 +228,7 @@ app.get('/health', async (req, res) => {
           await redisClient.quit();
           console.log('Redis connection closed');
         } catch (error) {
-          console.error('Error closing Redis connection:', error);
+          logError('Redis Shutdown', error);
         }
       }
 
@@ -197,21 +236,21 @@ app.get('/health', async (req, res) => {
       process.exit(0);
     });
 
-    // Force exit after 10 seconds
+    // Force exit after timeout
     setTimeout(() => {
       console.error('Forced shutdown after timeout');
       process.exit(1);
-    }, 10000);
+    }, 30000); // 30 second timeout
   };
 
   // Handle various shutdown signals
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
-  process.on('SIGUSR2', () => shutdown('SIGUSR2')); // For nodemon restarts
+  process.on('SIGUSR2', () => shutdown('SIGUSR2'));
 
   // Handle uncaught errors
   process.on('uncaughtException', (error) => {
-    console.error('Uncaught Exception:', error);
+    logError('Uncaught Exception', error);
     shutdown('UNCAUGHT_EXCEPTION');
   });
 
@@ -220,7 +259,7 @@ app.get('/health', async (req, res) => {
     shutdown('UNHANDLED_REJECTION');
   });
 })().catch(error => {
-  console.error('Fatal error during startup:', error);
+  logError('Startup', error);
   process.exit(1);
 });
 
