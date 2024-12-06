@@ -6,6 +6,13 @@ const session = require('express-session');
 const OAuth2Strategy = require('passport-oauth2');
 const axios = require('axios');
 
+// Clean environment variables
+Object.keys(process.env).forEach(key => {
+  if (typeof process.env[key] === 'string') {
+    process.env[key] = process.env[key].replace(/[;,'"]+/g, '').trim();
+  }
+});
+
 // Log startup info
 console.log('Starting server with environment:', {
   NODE_ENV: process.env.NODE_ENV,
@@ -22,7 +29,7 @@ app.use(express.json());
 // CORS configuration
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production'
-    ? 'https://light90.com'
+    ? process.env.CLIENT_URL
     : ['http://localhost:3000', 'http://127.0.0.1:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
@@ -122,7 +129,11 @@ app.get('/health', (req, res) => {
     status: 'ok',
     uptime: process.uptime(),
     memory: process.memoryUsage(),
-    env: process.env.NODE_ENV
+    env: process.env.NODE_ENV,
+    cors: {
+      origin: corsOptions.origin,
+      clientUrl: process.env.CLIENT_URL
+    }
   });
 });
 
