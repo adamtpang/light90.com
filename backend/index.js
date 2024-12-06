@@ -122,21 +122,6 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  console.log('Health check request received');
-  res.status(200).json({
-    status: 'ok',
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    env: process.env.NODE_ENV,
-    cors: {
-      origin: corsOptions.origin,
-      clientUrl: process.env.CLIENT_URL
-    }
-  });
-});
-
 app.get('/auth/status', (req, res) => {
   res.json({
     authenticated: req.isAuthenticated(),
