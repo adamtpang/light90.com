@@ -6,14 +6,18 @@ const session = require('express-session');
 const OAuth2Strategy = require('passport-oauth2');
 const axios = require('axios');
 
-// Clean environment variables (remove any trailing semicolons, quotes, and commas)
-Object.keys(process.env).forEach(key => {
-  if (typeof process.env[key] === 'string') {
-    process.env[key] = process.env[key]
-      .replace(/[;,'"]+$/, '')  // Remove trailing semicolons, commas, quotes
-      .trim();
-  }
-});
+// Clean environment variables more aggressively
+const cleanEnvVars = () => {
+  Object.keys(process.env).forEach(key => {
+    if (typeof process.env[key] === 'string') {
+      // Remove all trailing punctuation and whitespace
+      process.env[key] = process.env[key].replace(/[;,'"]+/g, '').trim();
+    }
+  });
+};
+
+// Clean environment variables
+cleanEnvVars();
 
 // Validate required environment variables
 const requiredEnvVars = [
@@ -48,7 +52,7 @@ app.use(express.json());
 // CORS configuration
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production'
-    ? ['https://light90.com', 'https://www.light90.com'].map(origin => origin.trim())
+    ? ['https://light90.com', 'https://www.light90.com']
     : 'http://localhost:3000',
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
@@ -85,66 +89,9 @@ app.use(session(sessionConfig));
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Passport serialization
-passport.serializeUser((user, done) => done(null, user));
-passport.deserializeUser((user, done) => done(null, user));
-
-// Configure OAuth
-const whoopStrategy = new OAuth2Strategy(
-  {
-    authorizationURL: 'https://api.prod.whoop.com/oauth/oauth2/auth',
-    tokenURL: 'https://api.prod.whoop.com/oauth/oauth2/token',
-    clientID: process.env.WHOOP_CLIENT_ID,
-    clientSecret: process.env.WHOOP_CLIENT_SECRET,
-    callbackURL: process.env.REDIRECT_URI,
-    scope: ['offline', 'read:sleep', 'read:profile'].join(' '),
-    state: true,
-    customHeaders: {
-      'Accept': 'application/json',
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'api-version': '2',
-      'User-Agent': 'Light90/1.0.0'
-    }
-  },
-  async (accessToken, refreshToken, params, profile, done) => {
-    try {
-      console.log('OAuth callback received:', { accessToken, refreshToken, params });
-
-      // Get user profile from WHOOP API
-      const userResponse = await axios.get('https://api.prod.whoop.com/developer/v1/activity/sleep', {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'api-version': '2',
-          'User-Agent': 'Light90/1.0.0'
-        },
-        params: {
-          start_date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-          end_date: new Date().toISOString()
-        }
-      });
-
-      const user = {
-        accessToken,
-        refreshToken,
-        tokenParams: params,
-        profile: userResponse.data
-      };
-
-      console.log('User profile fetched:', user);
-      return done(null, user);
-    } catch (error) {
-      console.error('OAuth error:', error.response?.data || error.message);
-      return done(error);
-    }
-  }
-);
-
-passport.use('whoop', whoopStrategy);
-
 // Server readiness flag
 let isServerReady = false;
+let serverShutdownInitiated = false;
 
 // Routes
 app.get('/', (req, res) => {
@@ -152,6 +99,15 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
+  if (serverShutdownInitiated) {
+    console.log('Health check failed - server is shutting down');
+    return res.status(503).json({
+      status: 'error',
+      message: 'Server is shutting down',
+      time: new Date().toISOString()
+    });
+  }
+
   if (!isServerReady) {
     console.log('Health check failed - server not ready');
     return res.status(503).json({
@@ -225,6 +181,40 @@ app.get('/auth/logout', (req, res) => {
   });
 });
 
+// Process event handlers
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  serverShutdownInitiated = true;
+  shutdown();
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  serverShutdownInitiated = true;
+  shutdown();
+});
+
+// Graceful shutdown function
+const shutdown = () => {
+  if (serverShutdownInitiated) {
+    return;
+  }
+  serverShutdownInitiated = true;
+  console.log('Shutdown initiated. Closing server...');
+  isServerReady = false;
+
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+
+  // Force close after 10 seconds
+  setTimeout(() => {
+    console.error('Forcing shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+};
+
 // Start server
 const port = process.env.PORT || 5000;
 const server = app.listen(port, '0.0.0.0', () => {
@@ -234,27 +224,22 @@ const server = app.listen(port, '0.0.0.0', () => {
     PORT: port,
     CLIENT_URL: process.env.CLIENT_URL,
     REDIRECT_URI: process.env.REDIRECT_URI,
-    CORS_ORIGIN: Array.isArray(corsOptions.origin) ? corsOptions.origin : corsOptions.origin
+    CORS_ORIGIN: corsOptions.origin
   });
   console.log('===================');
 
-  // Mark server as ready immediately since all middleware is already initialized
+  // Mark server as ready
   isServerReady = true;
   console.log('Server is ready to accept requests');
 });
 
-// Graceful shutdown
+// Handle graceful shutdown signals
 process.on('SIGTERM', () => {
-  console.log('SIGTERM received. Shutting down gracefully...');
-  isServerReady = false;
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
+  console.log('SIGTERM received');
+  shutdown();
+});
 
-  // Force close after 10 seconds
-  setTimeout(() => {
-    console.log('Forcing shutdown after timeout');
-    process.exit(1);
-  }, 10000);
+process.on('SIGINT', () => {
+  console.log('SIGINT received');
+  shutdown();
 });
