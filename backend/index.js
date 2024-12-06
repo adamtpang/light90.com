@@ -11,7 +11,7 @@ const RedisStore = require('connect-redis').default;
 // Clean environment variables (remove any trailing semicolons)
 Object.keys(process.env).forEach(key => {
   if (typeof process.env[key] === 'string') {
-    process.env[key] = process.env[key].replace(/;$/, '');
+    process.env[key] = process.env[key].replace(/;$/, '').trim();
   }
 });
 
@@ -283,13 +283,25 @@ app.get('/health', async (req, res) => {
 app.use(express.json());
 
 // CORS configuration
+const productionOrigin = 'https://light90.com';
+const developmentOrigins = ['http://localhost:3000', 'http://127.0.0.1:3000'];
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production'
-    ? 'https://light90.com'
-    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin: (origin, callback) => {
+    const allowedOrigins = process.env.NODE_ENV === 'production'
+      ? [productionOrigin]
+      : developmentOrigins;
+
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.warn(`Origin ${origin} not allowed by CORS`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+  exposedHeaders: ['Access-Control-Allow-Origin']
 };
 
 // Apply CORS middleware
@@ -297,6 +309,62 @@ app.use(cors(corsOptions));
 
 // Add CORS preflight
 app.options('*', cors(corsOptions));
+
+// Add headers middleware for additional security and CORS handling
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    const allowedOrigins = process.env.NODE_ENV === 'production'
+      ? [productionOrigin]
+      : developmentOrigins;
+
+    if (allowedOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+  }
+
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Origin, X-Requested-With');
+
+  // Security headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+
+  next();
+});
+
+// Request logging with CORS information
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`, {
+    origin: req.headers.origin,
+    allowedOrigin: res.getHeader('Access-Control-Allow-Origin'),
+    nodeEnv: process.env.NODE_ENV,
+    headers: {
+      ...req.headers,
+      cookie: undefined // Don't log cookies
+    }
+  });
+  next();
+});
+
+// Response logging middleware
+app.use((req, res, next) => {
+  const originalSend = res.send;
+  res.send = function(data) {
+    console.log(`[${new Date().toISOString()}] Response:`, {
+      path: req.path,
+      statusCode: res.statusCode,
+      corsHeaders: {
+        'Access-Control-Allow-Origin': res.getHeader('Access-Control-Allow-Origin'),
+        'Access-Control-Allow-Credentials': res.getHeader('Access-Control-Allow-Credentials')
+      }
+    });
+    return originalSend.apply(res, arguments);
+  };
+  next();
+});
 
 // Configure session with Redis or fallback to memory store
 const sessionConfig = {
