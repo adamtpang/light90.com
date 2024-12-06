@@ -5,7 +5,8 @@ buildCommand = "npm install --omit=dev --no-cache"
 [deploy]
 startCommand = "node --max-old-space-size=512 index.js"
 healthcheckPath = "/health"
-healthcheckTimeout = 5
+healthcheckTimeout = 10
+healthcheckInterval = 30
 
 [deploy.env]
 NODE_ENV = "production"

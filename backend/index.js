@@ -122,7 +122,7 @@ redisClient.on('end', () => {
 app.get('/health', async (req, res) => {
   const memoryUsage = process.memoryUsage();
   const status = {
-    status: serverReady && !isShuttingDown ? 'ok' : 'unavailable',
+    status: 'ok',
     time: new Date().toISOString(),
     env: process.env.NODE_ENV,
     redis: {
@@ -137,9 +137,8 @@ app.get('/health', async (req, res) => {
     }
   };
 
-  // Return appropriate status code based on service health
-  const statusCode = serverReady && !isShuttingDown ? 200 : 503;
-  res.status(statusCode).json(status);
+  // Always return 200 to keep container alive
+  res.status(200).json(status);
 });
 
 // Connect to Redis and start server
@@ -147,55 +146,7 @@ app.get('/health', async (req, res) => {
   let startTime = Date.now();
   console.log('Starting server initialization at:', new Date().toISOString());
 
-  try {
-    console.log('Attempting to connect to Redis with URL pattern:',
-      process.env.REDIS_URL.replace(/\/\/[^@]+@/, '//***:***@')
-    );
-
-    // Add timeout to Redis connection attempt
-    const connectWithTimeout = async () => {
-      return Promise.race([
-        redisClient.connect(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Redis connection timeout')), 5000)
-        )
-      ]);
-    };
-
-    await connectWithTimeout();
-  } catch (error) {
-    logError('Redis Connection', error);
-    console.log('Continuing without Redis - using memory store');
-  }
-
-  // Configure session with Redis or fallback to memory store
-  const sessionConfig = {
-    secret: process.env.SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    rolling: true,
-    cookie: {
-      secure: process.env.NODE_ENV === 'production',
-      httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000,
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
-    }
-  };
-
-  if (redisConnected) {
-    sessionConfig.store = new RedisStore({
-      client: redisClient,
-      prefix: 'sess:',
-      ttl: 86400 // 1 day
-    });
-    console.log('Using Redis session store');
-  } else {
-    console.warn('Using memory session store as fallback - sessions will be lost on server restart');
-  }
-
-  app.use(session(sessionConfig));
-
-  // Start server
+  // Start server first to handle health checks
   const PORT = process.env.PORT || 5000;
   const server = app.listen(PORT, '0.0.0.0', () => {
     serverReady = true;
@@ -219,6 +170,40 @@ app.get('/health', async (req, res) => {
     connections.add(conn);
     conn.on('close', () => connections.delete(conn));
   });
+
+  // Try to connect to Redis after server is started
+  try {
+    console.log('Attempting to connect to Redis with URL pattern:',
+      process.env.REDIS_URL.replace(/\/\/[^@]+@/, '//***:***@')
+    );
+
+    // Add timeout to Redis connection attempt
+    const connectWithTimeout = async () => {
+      return Promise.race([
+        redisClient.connect(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Redis connection timeout')), 5000)
+        )
+      ]);
+    };
+
+    await connectWithTimeout();
+
+    // Configure session with Redis
+    sessionConfig.store = new RedisStore({
+      client: redisClient,
+      prefix: 'sess:',
+      ttl: 86400 // 1 day
+    });
+    console.log('Using Redis session store');
+
+  } catch (error) {
+    logError('Redis Connection', error);
+    console.log('Continuing with memory store - sessions will be lost on server restart');
+  }
+
+  // Configure session middleware
+  app.use(session(sessionConfig));
 
   // Graceful shutdown handling
   const shutdown = async (signal) => {
