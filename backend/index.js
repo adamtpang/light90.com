@@ -9,15 +9,19 @@ const axios = require('axios');
 // Clean environment variables
 Object.keys(process.env).forEach(key => {
   if (typeof process.env[key] === 'string') {
+    const originalValue = process.env[key];
     process.env[key] = process.env[key].replace(/[;,'"]+/g, '').trim();
+    if (originalValue !== process.env[key]) {
+      console.log(`Cleaned env var ${key}: '${originalValue}' -> '${process.env[key]}'`);
+    }
   }
 });
 
 console.log('Starting server with environment:', {
-  NODE_ENV: process.env.NODE_ENV,
-  PORT: process.env.PORT,
-  CLIENT_URL: process.env.CLIENT_URL,
-  REDIRECT_URI: process.env.REDIRECT_URI
+  NODE_ENV: JSON.stringify(process.env.NODE_ENV),
+  PORT: JSON.stringify(process.env.PORT),
+  CLIENT_URL: JSON.stringify(process.env.CLIENT_URL),
+  REDIRECT_URI: JSON.stringify(process.env.REDIRECT_URI)
 });
 
 const app = express();
@@ -46,7 +50,9 @@ app.use((req, res, next) => {
 
 // Session configuration
 const sessionConfig = {
-  store: new session.MemoryStore(),
+  store: process.env.NODE_ENV === 'production'
+    ? null  // In production, the session will be lost on restart, but at least we won't leak memory
+    : new session.MemoryStore(),
   secret: process.env.SESSION_SECRET || 'dev-secret',
   resave: false,
   saveUninitialized: false,
