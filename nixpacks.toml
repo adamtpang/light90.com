@@ -2,13 +2,13 @@
 nixPkgs = ['nodejs_20']
 
 [phases.install]
-cmds = ['npm ci']
-
-[start]
-cmd = 'node backend/index.js'
+cmds = ['cd backend && npm ci']
 
 [phases.build]
-dependsOn = ['setup', 'install']
+cmds = []
+
+[start]
+cmd = 'cd backend && node index.js'
 
 [phases.cleanup]
 cmds = ['rm -rf /nix/var/nix/gcroots/auto/*']
