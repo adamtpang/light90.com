@@ -176,7 +176,7 @@ const SimulatedTimeline: React.FC<SimulatedTimelineProps> = ({
 
   const timePoints = Array.from({ length: 13 }, (_, i) => ({
     time: addHours(tomorrow, i),
-    label: format(addHours(tomorrow, i), 'h:mm a')
+    label: format(addHours(tomorrow, i), 'h a')
   }));
 
   const calculatePosition = (time: Date | null) => {
@@ -194,13 +194,13 @@ const SimulatedTimeline: React.FC<SimulatedTimelineProps> = ({
       </Typography>
       <Box sx={{ mb: 2 }}>
         <Typography variant="body2" color="text.secondary">
-          Estimated wake time: {formatTimeIfValid(avgWakeTime)} (based on last 7 days)
+          Estimated wake time: {avgWakeTime ? format(avgWakeTime, 'h a') : 'N/A'} (based on last 7 days)
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Tomorrow's sunrise: {formatTimeIfValid(sunrise)} (adjusted for first light)
+          Tomorrow's sunrise: {sunrise ? format(sunrise, 'h a') : 'N/A'} (adjusted for first light)
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Optimal coffee time: {formatTimeIfValid(optimalCoffeeTime)} (90 mins after wake)
+          Optimal coffee time: {optimalCoffeeTime ? format(optimalCoffeeTime, 'h a') : 'N/A'} (90 mins after wake)
         </Typography>
         {simulatedTime && (
           <Typography variant="body1" sx={{ mt: 1, fontWeight: 'bold', color: 'primary.main' }}>

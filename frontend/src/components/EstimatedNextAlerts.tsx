@@ -61,7 +61,7 @@ const EstimatedNextAlerts: React.FC<EstimatedNextAlertsProps> = ({
               <HotelIcon sx={{ color: 'info.main' }} />
               <Box>
                 <Typography variant="h6" sx={{ color: 'info.main' }}>
-                  {averageWakeTime ? format(averageWakeTime, 'h:mm a') : 'Calculating...'}
+                  {averageWakeTime ? format(averageWakeTime, 'h a') : 'Calculating...'}
                 </Typography>
                 <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                   Average Wake Time (last {Math.min(7, user?.profile?.records?.length || 0)} days)
@@ -76,7 +76,7 @@ const EstimatedNextAlerts: React.FC<EstimatedNextAlertsProps> = ({
               <WbSunnyIcon sx={{ color: 'secondary.main' }} />
               <Box>
                 <Typography variant="h6" sx={{ color: 'secondary.main' }}>
-                  {nextAlerts.sunlight ? format(nextAlerts.sunlight, 'h:mm a') : 'Calculating...'}
+                  {nextAlerts.sunlight ? format(nextAlerts.sunlight, 'h a') : 'Calculating...'}
                 </Typography>
                 <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                   {nextAlerts.sunlight && `in ${formatCountdown(nextAlerts.sunlight)}`}
@@ -85,7 +85,7 @@ const EstimatedNextAlerts: React.FC<EstimatedNextAlertsProps> = ({
             </Box>
             {sunTimes?.sunrise && (
               <Typography variant="caption" sx={{ pl: 6, color: 'text.secondary', display: 'block' }}>
-                Sunrise: {format(new Date(sunTimes.sunrise), 'h:mm a')}
+                Sunrise: {format(new Date(sunTimes.sunrise), 'h a')}
                 {' '}(adjusted -30min for first light)
               </Typography>
             )}
@@ -97,7 +97,7 @@ const EstimatedNextAlerts: React.FC<EstimatedNextAlertsProps> = ({
               <CoffeeIcon sx={{ color: 'primary.main' }} />
               <Box>
                 <Typography variant="h6" sx={{ color: 'primary.main' }}>
-                  {nextAlerts.coffee ? format(nextAlerts.coffee, 'h:mm a') : 'Calculating...'}
+                  {nextAlerts.coffee ? format(nextAlerts.coffee, 'h a') : 'Calculating...'}
                 </Typography>
                 <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                   {nextAlerts.coffee && `in ${formatCountdown(nextAlerts.coffee)}`}
@@ -106,7 +106,7 @@ const EstimatedNextAlerts: React.FC<EstimatedNextAlertsProps> = ({
             </Box>
             {averageWakeTime && (
               <Typography variant="caption" sx={{ pl: 6, color: 'text.secondary', display: 'block' }}>
-                90 minutes after average wake time ({format(averageWakeTime, 'h:mm a')})
+                90 minutes after average wake time ({format(averageWakeTime, 'h a')})
               </Typography>
             )}
           </Box>

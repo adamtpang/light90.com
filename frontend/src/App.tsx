@@ -134,10 +134,10 @@ const App: React.FC = () => {
       };
 
       // Show initial message
-      addAlert('info', 'Test notification will appear in 10 seconds...');
+      addAlert('info', 'Test notification will appear in 3 seconds...');
 
-      // Wait 10 seconds
-      await new Promise(resolve => setTimeout(resolve, 10000));
+      // Wait 3 seconds
+      await new Promise(resolve => setTimeout(resolve, 3000));
 
       // Play notification sound
       const audio = new Audio('/notification.wav');

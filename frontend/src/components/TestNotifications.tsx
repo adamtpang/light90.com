@@ -30,7 +30,7 @@ const TestNotifications: React.FC<TestNotificationsProps> = ({
             2. When you see the countdown message, turn off your screen
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            3. Wait for the notification (10 seconds) - it should wake your device!
+            3. Wait for the notification (3 seconds) - it should wake your device!
           </Typography>
           <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
             <Button
