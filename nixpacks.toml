@@ -6,3 +6,10 @@ cmds = ['npm ci']
 
 [start]
 cmd = 'node backend/index.js'
+
+[phases.build]
+dependsOn = ['setup', 'install']
+
+[phases.cleanup]
+cmds = ['rm -rf /nix/var/nix/gcroots/auto/*']
+dependsOn = ['build']
