@@ -2,8 +2,6 @@ services:
   - type: web
     name: light90-backend
     runtime: node
-    plan: free
-    region: oregon
     buildCommand: cd backend && npm ci
     startCommand: cd backend && node index.js
     envVars:
