@@ -4,6 +4,10 @@
   "outputDirectory": "frontend/build",
   "routes": [
     {
+      "src": "/auth/(.*)",
+      "dest": "https://light90-backend.onrender.com/auth/$1"
+    },
+    {
       "src": "/api/(.*)",
       "dest": "https://light90-backend.onrender.com/api/$1"
     },

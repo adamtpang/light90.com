@@ -10,7 +10,7 @@ services:
       - key: PORT
         value: 8080
       - key: REDIRECT_URI
-        value: https://light90-backend.onrender.com/auth/whoop/callback
+        value: https://light90.com/auth/whoop/callback
       - key: CLIENT_URL
         value: https://light90.com
       - key: WHOOP_CLIENT_ID
@@ -19,5 +19,7 @@ services:
         value: 2a618e1b53ba11a01ed00c01f1cbc33b9663cd015c3e37d2567122969764ecd7
       - key: SESSION_SECRET
         value: light90-session-secret-key-change-in-production
+      - key: CORS_ORIGIN
+        value: https://light90.com
     healthCheckPath: /
     autoDeploy: true
