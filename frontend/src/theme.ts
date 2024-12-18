@@ -1,68 +1,60 @@
-import { createTheme } from '@mui/material/styles';
+import { createTheme } from '@mui/material';
 
 const theme = createTheme({
   palette: {
+    mode: 'dark',
     primary: {
-      main: '#FF9933', // Orange from light90 logo
-      light: '#FFB366',
-      dark: '#CC7A29',
-      contrastText: '#FFFFFF'
+      main: '#90caf9',
+      light: '#e3f2fd',
+      dark: '#42a5f5',
     },
     secondary: {
-      main: '#FFD700', // Yellow from light90 logo
-      light: '#FFE14D',
-      dark: '#CCAC00',
-      contrastText: '#000000'
+      main: '#ce93d8',
+    },
+    warning: {
+      main: '#ffd54f',
+    },
+    info: {
+      main: '#81d4fa',
     },
     background: {
-      default: '#FAFAFA',
-      paper: '#FFFFFF'
-    }
-  },
-  typography: {
-    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-    h4: {
-      fontWeight: 700,
-      letterSpacing: '-0.02em'
+      default: '#0a1929',
+      paper: '#1a2027',
     },
-    h5: {
-      fontWeight: 600,
-      letterSpacing: '-0.01em'
+    text: {
+      primary: '#fff',
+      secondary: 'rgba(255, 255, 255, 0.7)',
     },
-    h6: {
-      fontWeight: 600,
-      letterSpacing: '-0.01em'
-    }
-  },
-  shape: {
-    borderRadius: 12
   },
   components: {
     MuiCard: {
       styleOverrides: {
         root: {
-          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.05)',
-          border: '1px solid rgba(0, 0, 0, 0.05)'
-        }
-      }
+          backgroundImage: 'none',
+          backgroundColor: '#1a2027',
+        },
+      },
     },
-    MuiButton: {
+    MuiAlert: {
+      styleOverrides: {
+        standardInfo: {
+          backgroundColor: '#1a2027',
+          color: '#81d4fa',
+        },
+        standardWarning: {
+          backgroundColor: '#1a2027',
+          color: '#ffd54f',
+        },
+      },
+    },
+    MuiDivider: {
       styleOverrides: {
         root: {
-          textTransform: 'none',
-          fontWeight: 600,
-          borderRadius: '8px',
-          padding: '10px 20px'
+          borderColor: 'rgba(255, 255, 255, 0.12)',
         },
-        outlined: {
-          borderWidth: '2px',
-          '&:hover': {
-            borderWidth: '2px'
-          }
-        }
-      }
-    }
-  }
+      },
+    },
+  },
 });
 
 export default theme;

@@ -7,30 +7,23 @@ import {
   Typography,
   Button,
   Alert,
-  useMediaQuery,
-  createTheme,
-  Divider,
   Card,
-  CardContent
+  CardContent,
+  Divider
 } from '@mui/material';
-import { format, addMinutes } from 'date-fns';
+import { format } from 'date-fns';
 import { getTimes } from 'suncalc';
-import { VitalUser, SleepData, NotificationAlert, NextAlerts } from './types';
+import { VitalUser, NotificationAlert, NextAlerts } from './types';
 import theme from './theme';
 
 // Component imports
-import WhatToExpect from './components/WhatToExpect';
-import SimulatedTimeline from './components/SimulatedTimeline';
 import EstimatedNextAlerts from './components/EstimatedNextAlerts';
-import TestNotifications from './components/TestNotifications';
 import NotificationSettings from './components/NotificationSettings';
-import MobileHomeScreenTips from './components/MobileHomeScreenTips';
 import ErrorBoundary from './components/ErrorBoundary';
 
 const App: React.FC = () => {
   // State variables
   const [user, setUser] = useState<VitalUser | null>(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [location, setLocation] = useState<{ lat: number; lon: number } | null>(null);
   const [sunTimes, setSunTimes] = useState<any>(null);
@@ -39,21 +32,14 @@ const App: React.FC = () => {
   });
   const [alerts, setAlerts] = useState<NotificationAlert[]>([]);
   const [nextAlerts, setNextAlerts] = useState<NextAlerts>({ sunlight: null, coffee: null });
-  const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null);
-  const [isInstallable, setIsInstallable] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const nextAlertsRef = useRef<NextAlerts>({ sunlight: null, coffee: null });
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [locationEnabled, setLocationEnabled] = useState<boolean>(false);
   const [locationDenied, setLocationDenied] = useState<boolean>(false);
 
-  // Device detection
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  const isAndroid = /Android/.test(navigator.userAgent);
-  const isMobileDevice = isIOS || isAndroid;
-  const isSmallScreen = useMediaQuery('(max-width:600px)');
+  const nextAlertsRef = useRef<NextAlerts>({ sunlight: null, coffee: null });
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Device detection for notifications
+  const isMobileDevice = /iPad|iPhone|iPod|Android/.test(navigator.userAgent);
 
   // API URL
   const API_URL = process.env.REACT_APP_API_URL;
@@ -67,7 +53,6 @@ const App: React.FC = () => {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        console.log('Checking auth status at:', `${API_URL}/auth/status`);
         const response = await fetch(`${API_URL}/auth/status`, {
           credentials: 'include',
           headers: {
@@ -75,124 +60,28 @@ const App: React.FC = () => {
             'Content-Type': 'application/json'
           }
         });
-
-        console.log('Auth response status:', response.status);
         const data = await response.json();
-        console.log('Auth data:', data);
-
         if (data.authenticated) {
           setUser(data.user);
-          if (data.user?.profile?.records) {
-            console.log('User has sleep records:', data.user.profile.records.length);
-          }
         }
       } catch (error) {
         console.error('Auth check failed:', error);
         setError(error instanceof Error ? error.message : 'Failed to check authentication');
-      } finally {
-        setLoading(false);
       }
     };
 
     checkAuth();
   }, [API_URL]);
 
-  const requestNotificationPermission = async () => {
-    if (!('Notification' in window)) {
-      console.log('This browser does not support notifications');
-      return 'denied';
-    }
-
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission === 'granted') {
-        setNotificationsEnabled(true);
-      }
-      return permission;
-    } catch (error) {
-      console.error('Error requesting notification permission:', error);
-      return 'denied';
-    }
-  };
-
-  const sendTestNotification = async (type: 'sunlight' | 'coffee') => {
-    try {
-      if (!notificationsEnabled) {
-        addAlert('info', 'Please enable notifications in the settings below first.');
-        return;
-      }
-
-      const messages = {
-        sunlight: {
-          title: '☀️ Time for Morning Sunlight!',
-          body: 'Get 10-30 minutes of sunlight now to boost your energy and regulate your sleep cycle.'
-        },
-        coffee: {
-          title: '☕ Perfect Time for Coffee!',
-          body: 'Your cortisol has dropped - this is the optimal time for your first coffee.'
-        }
-      };
-
-      // Show initial message
-      addAlert('info', 'Test notification will appear in 3 seconds...');
-
-      // Wait 3 seconds
-      await new Promise(resolve => setTimeout(resolve, 3000));
-
-      // Play notification sound
-      const audio = new Audio('/notification.wav');
-      audio.loop = true;
-      await audio.play().catch(error => {
-        console.error('Error playing notification sound:', error);
-      });
-
-      // Show the actual notification
-      if ('Notification' in window) {
-        const notification = new Notification(messages[type].title, {
-          body: messages[type].body,
-          icon: '/logo192.svg'
-        });
-      }
-
-      // Add the alert with its audio
-      addAlert(type, `${messages[type].title} ${messages[type].body}`, audio);
-
-    } catch (error) {
-      console.error('Error sending notification:', error);
-      addAlert('info', 'There was an error sending the notification.');
-    }
-  };
-
-  // Helper function to add a new alert
-  const addAlert = (type: 'sunlight' | 'coffee' | 'info' | null, message: string, audio?: HTMLAudioElement) => {
+  // Helper functions
+  const addAlert = (type: 'sunlight' | 'coffee' | 'info' | null, message: string) => {
     const id = Math.random().toString(36).substr(2, 9);
-    setAlerts(prev => [...prev, { id, type, message, audio }]);
+    setAlerts(prev => [...prev, { id, type, message }]);
     return id;
   };
 
-  // Helper function to remove an alert
   const removeAlert = (id: string) => {
-    setAlerts(prev => {
-      const alertToRemove = prev.find(alert => alert.id === id);
-      if (alertToRemove?.audio) {
-        alertToRemove.audio.pause();
-        alertToRemove.audio.currentTime = 0;
-      }
-      return prev.filter(alert => alert.id !== id);
-    });
-  };
-
-  // Helper functions
-  const formatTimeIfValid = (date: Date | string | null | undefined) => {
-    if (!date) return 'N/A';
-    try {
-      const dateObj = new Date(date);
-      if (isNaN(dateObj.getTime())) return 'N/A';
-      return format(dateObj, 'h:mm a');
-    } catch (error) {
-      console.error('Error formatting date:', error);
-      return 'N/A';
-    }
+    setAlerts(prev => prev.filter(alert => alert.id !== id));
   };
 
   const adjustSunriseTime = (sunriseTime: Date) => {
@@ -201,31 +90,16 @@ const App: React.FC = () => {
 
   const formatCountdown = useCallback((targetDate: Date | null) => {
     if (!targetDate) return 'Calculating...';
-
     const diffMs = targetDate.getTime() - currentTime.getTime();
     if (diffMs < 0) return 'Due now';
-
     const hours = Math.floor(diffMs / (1000 * 60 * 60));
     const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
     const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
-
     return `${hours}h ${minutes}m ${seconds}s`;
   }, [currentTime]);
 
-  const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-
-    if (outcome === 'accepted') {
-      setDeferredPrompt(null);
-      setIsInstallable(false);
-    }
-  };
-
   // Calculate average wake time from last 7 days
-  const calculateAverageWakeTime = React.useCallback(() => {
+  const calculateAverageWakeTime = useCallback(() => {
     if (!user?.profile?.records || user.profile.records.length === 0) return null;
 
     const last7Days = user.profile.records.slice(0, 7);
@@ -243,7 +117,7 @@ const App: React.FC = () => {
     return avgWakeTime;
   }, [user?.profile?.records]);
 
-  // Memoize the calculation function
+  // Calculate next alerts
   const calculateNextAlerts = useCallback(() => {
     if (!user?.profile?.records || !sunTimes?.sunrise) return null;
 
@@ -262,15 +136,14 @@ const App: React.FC = () => {
     }
 
     return { nextSunrise, nextCoffee };
-  }, [user?.profile?.records, sunTimes?.sunrise, calculateAverageWakeTime, adjustSunriseTime]);
+  }, [user?.profile?.records, sunTimes?.sunrise, calculateAverageWakeTime]);
 
-  // Update alerts only when necessary
+  // Update alerts
   useEffect(() => {
     const updateAlerts = () => {
       const newAlerts = calculateNextAlerts();
       if (!newAlerts) return;
 
-      // Only update if values have changed
       if (
         newAlerts.nextSunrise?.getTime() !== nextAlertsRef.current.sunlight?.getTime() ||
         newAlerts.nextCoffee?.getTime() !== nextAlertsRef.current.coffee?.getTime()
@@ -283,32 +156,16 @@ const App: React.FC = () => {
       }
     };
 
-    // Initial update
     updateAlerts();
-
-    // Clear existing timer
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
-
-    // Set up new timer
-    timerRef.current = setInterval(updateAlerts, 1000);
-
-    // Cleanup
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
+    const timer = setInterval(updateAlerts, 1000);
+    return () => clearInterval(timer);
   }, [calculateNextAlerts]);
 
-  // Get user's location and calculate sun times
+  // Get location and calculate sun times
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          console.log('Got location:', position.coords);
           setLocation({
             lat: position.coords.latitude,
             lon: position.coords.longitude
@@ -316,107 +173,100 @@ const App: React.FC = () => {
         },
         (error) => {
           console.error('Error getting location:', error);
-          setError('Unable to get your location. Please enable location services.');
+          if (error.code === 1) {
+            setLocationDenied(true);
+          }
+          setError('Unable to get your location. Please enable location services in your browser settings.');
         }
       );
     }
   }, []);
 
-  // Calculate sun times when location changes
+  // Update sun times when location changes
   useEffect(() => {
     if (location) {
-      console.log('Calculating sun times for location:', location);
       const times = getTimes(new Date(), location.lat, location.lon);
-      console.log('Sun times:', times);
       setSunTimes(times);
     }
   }, [location]);
 
-  // Update current time every second
+  // Update current time
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
-
     return () => clearInterval(timer);
   }, []);
 
-  // Schedule notifications when nextAlerts change
+  // Handle notifications
   useEffect(() => {
     if (!notificationsEnabled || !nextAlerts.sunlight || !nextAlerts.coffee) return;
 
-    const scheduleNotification = (time: Date, type: 'sunlight' | 'coffee') => {
+    const checkAndNotify = () => {
       const now = new Date();
-      const delay = time.getTime() - now.getTime();
+      const messages = {
+        sunlight: {
+          title: '☀️ Time for Morning Sunlight!',
+          body: 'Get 10-30 minutes of sunlight now to boost your energy and regulate your sleep cycle.'
+        },
+        coffee: {
+          title: '☕ Perfect Time for Coffee!',
+          body: 'Your cortisol has dropped - this is the optimal time for your first coffee.'
+        }
+      };
 
-      if (delay <= 0) return; // Don't schedule if time has passed
-
-      console.log(`Scheduling ${type} notification for:`, time);
-
-      const timeoutId = setTimeout(() => {
-        const messages = {
-          sunlight: {
-            title: '☀️ Time for Morning Sunlight!',
-            body: 'Get 10-30 minutes of sunlight now to boost your energy and regulate your sleep cycle.'
-          },
-          coffee: {
-            title: '☕ Perfect Time for Coffee!',
-            body: 'Your cortisol has dropped - this is the optimal time for your first coffee.'
-          }
-        };
-
-        // Play notification sound
+      if (nextAlerts.sunlight && nextAlerts.sunlight <= now) {
         const audio = new Audio('/notification.wav');
         audio.play().catch(console.error);
 
-        // Show notification
         if ('Notification' in window) {
-          const notification = new Notification(messages[type].title, {
-            body: messages[type].body,
+          new Notification(messages.sunlight.title, {
+            body: messages.sunlight.body,
             icon: '/logo192.svg'
           });
         }
 
-        // Add alert to UI
-        addAlert(type, `${messages[type].title} ${messages[type].body}`);
-      }, delay);
+        addAlert('sunlight', `${messages.sunlight.title} ${messages.sunlight.body}`);
+      }
 
-      return timeoutId;
+      if (nextAlerts.coffee && nextAlerts.coffee <= now) {
+        const audio = new Audio('/notification.wav');
+        audio.play().catch(console.error);
+
+        if ('Notification' in window) {
+          new Notification(messages.coffee.title, {
+            body: messages.coffee.body,
+            icon: '/logo192.svg'
+          });
+        }
+
+        addAlert('coffee', `${messages.coffee.title} ${messages.coffee.body}`);
+      }
     };
 
-    // Schedule both notifications
-    const sunlightTimeout = scheduleNotification(nextAlerts.sunlight, 'sunlight');
-    const coffeeTimeout = scheduleNotification(nextAlerts.coffee, 'coffee');
-
-    // Cleanup
-    return () => {
-      if (sunlightTimeout) clearTimeout(sunlightTimeout);
-      if (coffeeTimeout) clearTimeout(coffeeTimeout);
-    };
+    checkAndNotify();
+    const interval = setInterval(checkAndNotify, 1000);
+    return () => clearInterval(interval);
   }, [nextAlerts, notificationsEnabled]);
 
-  // Request location permission
-  const requestLocationPermission = async () => {
+  const requestNotificationPermission = async () => {
+    if (!('Notification' in window)) return 'denied';
     try {
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject);
-      });
-
-      setLocation({
-        lat: position.coords.latitude,
-        lon: position.coords.longitude
-      });
-      setLocationEnabled(true);
-      setLocationDenied(false);
-      return true;
-    } catch (error) {
-      console.error('Error getting location:', error);
-      if (error instanceof GeolocationPositionError && error.code === 1) {
-        setLocationDenied(true);
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        setNotificationsEnabled(true);
       }
-      setError('Unable to get your location. Please enable location services.');
-      return false;
+      return permission;
+    } catch (error) {
+      console.error('Error requesting notification permission:', error);
+      return 'denied';
     }
+  };
+
+  // Add a helper function to format time
+  const formatTime = (date: Date | null) => {
+    if (!date) return 'Not scheduled';
+    return format(date, 'h:mm a');
   };
 
   return (
@@ -434,16 +284,7 @@ const App: React.FC = () => {
           </Box>
         }
       >
-        <Container
-          maxWidth={false}
-          sx={{
-            backgroundColor: 'background.default',
-            minHeight: '100vh',
-            py: 4,
-            display: 'flex',
-            flexDirection: 'column'
-          }}
-        >
+        <Container maxWidth={false} sx={{ backgroundColor: 'background.default', minHeight: '100vh', py: 4 }}>
           {/* Alert stack */}
           <Box sx={{
             position: 'fixed',
@@ -466,12 +307,8 @@ const App: React.FC = () => {
                   borderRadius: 2,
                   backgroundColor: '#1976d2',
                   color: 'white',
-                  '& .MuiAlert-icon': {
-                    color: 'white'
-                  },
-                  '& .MuiAlert-action': {
-                    color: 'white'
-                  }
+                  '& .MuiAlert-icon': { color: 'white' },
+                  '& .MuiAlert-action': { color: 'white' }
                 }}
                 onClose={() => removeAlert(alert.id)}
               >
@@ -481,151 +318,226 @@ const App: React.FC = () => {
           </Box>
 
           {/* Main content */}
-          <Container maxWidth="md" sx={{ flex: 1 }}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 4, minHeight: '100%' }}>
-              {/* Title section */}
-              <Box sx={{ textAlign: 'center', mb: 2 }}>
-                <Typography
-                  variant="h4"
-                  component="h1"
-                  gutterBottom
-                  sx={{
-                    color: 'primary.main',
-                    fontSize: { xs: '2rem', sm: '2.5rem' },
-                    wordBreak: 'break-word'
-                  }}
-                >
-                  light90.com
-                </Typography>
-                <Typography
-                  variant="h6"
-                  component="h2"
-                  color="text.secondary"
-                  sx={{
-                    fontSize: { xs: '1.1rem', sm: '1.25rem' },
-                    maxWidth: '600px',
-                    mx: 'auto',
-                    wordBreak: 'break-word'
-                  }}
-                >
-                  First light. First coffee.
-                </Typography>
-              </Box>
+          <Container maxWidth="md">
+            {/* Header */}
+            <Box sx={{ textAlign: 'center', mb: 4 }}>
+              <Typography
+                variant="h4"
+                component="h1"
+                gutterBottom
+                sx={{
+                  color: 'primary.main',
+                  fontWeight: 600,
+                  mb: 1
+                }}
+              >
+                light90.com
+              </Typography>
+              <Typography
+                variant="h6"
+                component="h2"
+                sx={{
+                  color: 'text.secondary',
+                  fontWeight: 400
+                }}
+              >
+                First light. First coffee.
+              </Typography>
+            </Box>
 
-              {/* Main card */}
-              <Card>
-                <CardContent sx={{
-                  p: { xs: 2, sm: 4 },
-                  overflowX: 'hidden',
-                  width: '100%'
-                }}>
-                  {!user ? (
-                    <Box sx={{ textAlign: 'center' }}>
-                      {!locationEnabled ? (
-                        <>
-                          <Typography variant="body1" sx={{ mb: 3, color: 'text.secondary' }}>
-                            Light90 needs your location to calculate optimal sunlight timing.
-                          </Typography>
-                          {locationDenied && (
-                            <Alert
-                              severity="warning"
-                              sx={{
-                                mb: 3,
-                                '& .MuiAlert-message': {
-                                  width: '100%'
-                                }
-                              }}
-                            >
-                              <Typography variant="body2">
-                                Location access was denied. Light90 needs your location to calculate sunrise times.
-                                Please enable location access in your browser settings and try again.
-                              </Typography>
-                            </Alert>
-                          )}
-                          <Button
-                            variant="contained"
-                            color="primary"
-                            onClick={requestLocationPermission}
-                            size="large"
-                            sx={{
-                              py: 1.5,
-                              px: 4,
-                              fontSize: '1.1rem',
-                              backgroundColor: 'primary.main',
-                              '&:hover': {
-                                backgroundColor: 'primary.dark',
-                              },
-                            }}
-                          >
-                            {locationDenied ? 'Enable Location Access' : 'Enable Location'}
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          variant="contained"
-                          color="primary"
-                          onClick={connectWhoop}
-                          size="large"
+            {/* Main card */}
+            <Card sx={{
+              boxShadow: 3,
+              bgcolor: 'background.paper',
+              border: 1,
+              borderColor: 'rgba(255, 255, 255, 0.12)'
+            }}>
+              <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                {!user ? (
+                  <Box sx={{ textAlign: 'center', py: 4 }}>
+                    {locationDenied && (
+                      <Alert
+                        severity="warning"
+                        sx={{
+                          mb: 3,
+                          maxWidth: 400,
+                          mx: 'auto',
+                          bgcolor: 'background.paper',
+                          border: 1,
+                          borderColor: 'rgba(255, 255, 255, 0.12)'
+                        }}
+                      >
+                        Enable location to calculate sunrise times
+                      </Alert>
+                    )}
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      onClick={connectWhoop}
+                      size="large"
+                      sx={{
+                        py: 1.5,
+                        px: 4,
+                        fontSize: '1.1rem',
+                        fontWeight: 500
+                      }}
+                    >
+                      Connect WHOOP
+                    </Button>
+                  </Box>
+                ) : (
+                  <>
+                    {/* Main Sections */}
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {/* Schedule Section */}
+                      <Box>
+                        <Typography
+                          variant="h6"
+                          gutterBottom
                           sx={{
-                            py: 1.5,
-                            px: 4,
-                            fontSize: '1.1rem',
-                            backgroundColor: 'primary.main',
-                            '&:hover': {
-                              backgroundColor: 'primary.dark',
-                            },
+                            color: 'primary.main',
+                            fontWeight: 600,
+                            mb: 2
                           }}
                         >
-                          Connect to WHOOP
-                        </Button>
-                      )}
-                    </Box>
-                  ) : (
-                    <>
-                      <WhatToExpect />
-                      <Divider sx={{ my: 4 }} />
-                      <EstimatedNextAlerts
-                        nextAlerts={nextAlerts}
-                        sunTimes={sunTimes}
-                        formatCountdown={formatCountdown}
-                        user={user}
-                      />
-                      <Divider sx={{ my: 4 }} />
-                      <SimulatedTimeline
-                        user={user}
-                        sunTimes={sunTimes}
-                        formatTimeIfValid={formatTimeIfValid}
-                        adjustSunriseTime={adjustSunriseTime}
-                      />
-                      <Divider sx={{ my: 4 }} />
-                      <TestNotifications
-                        sendTestNotification={sendTestNotification}
-                        notificationsEnabled={notificationsEnabled}
-                      />
-                      <Divider sx={{ my: 4 }} />
-                      <NotificationSettings
-                        notificationsEnabled={notificationsEnabled}
-                        requestNotificationPermission={requestNotificationPermission}
-                        setNotificationsEnabled={setNotificationsEnabled}
-                        isMobileDevice={isMobileDevice}
-                      />
-                      {isMobileDevice && (
-                        <>
-                          <Divider sx={{ my: 4 }} />
-                          <MobileHomeScreenTips
-                            isIOS={isIOS}
-                            isAndroid={isAndroid}
-                            isMobileDevice={isMobileDevice}
-                            isInstallable={isInstallable}
-                            handleInstallClick={handleInstallClick}
+                          Schedule
+                        </Typography>
+                        <Box sx={{ pl: { xs: 0, sm: 2 } }}>
+                          <EstimatedNextAlerts
+                            nextAlerts={nextAlerts}
+                            sunTimes={sunTimes}
+                            formatCountdown={formatCountdown}
+                            user={user}
                           />
+                        </Box>
+                      </Box>
+
+                      <Divider />
+
+                      {/* Settings Section */}
+                      <Box>
+                        <Typography
+                          variant="h6"
+                          gutterBottom
+                          sx={{
+                            color: 'primary.main',
+                            fontWeight: 600,
+                            mb: 2
+                          }}
+                        >
+                          Settings
+                        </Typography>
+                        <Box sx={{ pl: { xs: 0, sm: 2 } }}>
+                          <NotificationSettings
+                            notificationsEnabled={notificationsEnabled}
+                            requestNotificationPermission={requestNotificationPermission}
+                            setNotificationsEnabled={setNotificationsEnabled}
+                            isMobileDevice={isMobileDevice}
+                          />
+                        </Box>
+                      </Box>
+
+                      {/* Schedule Preview */}
+                      {notificationsEnabled && (
+                        <>
+                          <Divider />
+                          <Box>
+                            <Box sx={{ pl: { xs: 0, sm: 2 } }}>
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  color: 'text.secondary',
+                                  mb: 2
+                                }}
+                              >
+                                Based on wake time: {user?.profile?.records ? format(calculateAverageWakeTime() || new Date(), 'h:mm a') : 'calculating...'}
+                              </Typography>
+
+                              <Box sx={{ mb: 3, pl: 2 }}>
+                                <Box sx={{ mb: 2 }}>
+                                  <Typography
+                                    sx={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 1,
+                                      color: 'text.primary',
+                                      fontWeight: 500
+                                    }}
+                                  >
+                                    ☀️ {formatTime(nextAlerts.sunlight)}
+                                    <Typography
+                                      component="span"
+                                      variant="caption"
+                                      sx={{
+                                        color: 'text.secondary',
+                                        fontWeight: 400
+                                      }}
+                                    >
+                                      30 min before sunrise
+                                    </Typography>
+                                  </Typography>
+                                </Box>
+                                <Box>
+                                  <Typography
+                                    sx={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 1,
+                                      color: 'text.primary',
+                                      fontWeight: 500
+                                    }}
+                                  >
+                                    ☕ {formatTime(nextAlerts.coffee)}
+                                    <Typography
+                                      component="span"
+                                      variant="caption"
+                                      sx={{
+                                        color: 'text.secondary',
+                                        fontWeight: 400
+                                      }}
+                                    >
+                                      90 min after wake
+                                    </Typography>
+                                  </Typography>
+                                </Box>
+                              </Box>
+
+                              <Alert
+                                severity="info"
+                                sx={{
+                                  mb: 2,
+                                  bgcolor: 'background.paper',
+                                  border: 1,
+                                  borderColor: 'rgba(255, 255, 255, 0.12)',
+                                  '& .MuiAlert-message': {
+                                    color: 'info.main'
+                                  }
+                                }}
+                              >
+                                Times update based on your WHOOP sleep data
+                              </Alert>
+                              <Alert
+                                severity="warning"
+                                sx={{
+                                  bgcolor: 'background.paper',
+                                  border: 1,
+                                  borderColor: 'rgba(255, 255, 255, 0.12)',
+                                  '& .MuiAlert-message': {
+                                    color: 'warning.main'
+                                  }
+                                }}
+                              >
+                                Keep tab open or add to home screen for notifications
+                              </Alert>
+                            </Box>
+                          </Box>
                         </>
                       )}
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            </Box>
+                    </Box>
+                  </>
+                )}
+              </CardContent>
+            </Card>
           </Container>
         </Container>
       </ErrorBoundary>

@@ -165,29 +165,43 @@ const server = app.listen(port, '0.0.0.0', () => {
 });
 
 // Handle shutdown gracefully
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
+let isShuttingDown = false;
+
+const shutdown = (signal) => {
+  if (isShuttingDown) {
+    console.log('Shutdown already in progress');
+    return;
+  }
+
+  isShuttingDown = true;
+  console.log(`${signal} received, shutting down gracefully`);
+
+  // Close server first
   server.close(() => {
     console.log('Server closed');
+
+    // Force exit after 3 seconds if graceful shutdown fails
+    setTimeout(() => {
+      console.log('Could not close connections in time, forcefully shutting down');
+      process.exit(1);
+    }, 3000);
+
+    // Try graceful exit
     process.exit(0);
   });
-});
+};
 
-process.on('SIGINT', () => {
-  console.log(`SIGINT received at ${new Date().toISOString()}`);
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
-});
+// Handle different termination signals
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
+// Handle uncaught errors
 process.on('uncaughtException', (err) => {
   console.error('Uncaught exception:', err);
-  server.close(() => {
-    process.exit(1);
-  });
+  shutdown('UNCAUGHT_EXCEPTION');
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled rejection at:', promise, 'reason:', reason);
+  shutdown('UNHANDLED_REJECTION');
 });

@@ -4,6 +4,14 @@
   "outputDirectory": "frontend/build",
   "routes": [
     {
+      "src": "/auth/whoop/callback",
+      "dest": "https://light90-backend.onrender.com/auth/whoop/callback"
+    },
+    {
+      "src": "/auth/whoop",
+      "dest": "https://light90-backend.onrender.com/auth/whoop"
+    },
+    {
       "src": "/auth/(.*)",
       "dest": "https://light90-backend.onrender.com/auth/$1"
     },
