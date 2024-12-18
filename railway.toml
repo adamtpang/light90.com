@@ -1,0 +1,13 @@
+[build]
+builder = "nixpacks"
+buildCommand = "cd backend && npm ci"
+
+[deploy]
+startCommand = "cd backend && node index.js"
+healthcheckPath = "/"
+healthcheckTimeout = 100
+restartPolicyType = "on_failure"
+numReplicas = 1
+
+[deploy.envVars]
+NODE_ENV = "production"
