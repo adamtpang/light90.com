@@ -170,6 +170,8 @@ let isShuttingDown = false;
 const shutdown = (signal) => {
   if (isShuttingDown) {
     console.log('Shutdown already in progress');
+    // Force exit if user presses Ctrl+C multiple times
+    process.exit(1);
     return;
   }
 
@@ -179,16 +181,14 @@ const shutdown = (signal) => {
   // Close server first
   server.close(() => {
     console.log('Server closed');
-
-    // Force exit after 3 seconds if graceful shutdown fails
-    setTimeout(() => {
-      console.log('Could not close connections in time, forcefully shutting down');
-      process.exit(1);
-    }, 3000);
-
-    // Try graceful exit
     process.exit(0);
   });
+
+  // Force exit after 1.5 seconds if graceful shutdown fails
+  setTimeout(() => {
+    console.log('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 1500);
 };
 
 // Handle different termination signals
