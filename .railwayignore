@@ -1,0 +1,11 @@
+# Ignore frontend code
+frontend/
+node_modules/
+
+# Ignore git and other development files
+.git/
+*.md
+.gitignore
+
+# Ignore Dockerfile since we're using nixpacks
+Dockerfile
