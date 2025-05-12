@@ -121,6 +121,30 @@ app.get('/', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// DEV TESTING ROUTE - allows triggering the notification without waiting
+app.get('/dev/simulate-wakeup', (req, res) => {
+  if (process.env.NODE_ENV !== 'production') {
+    // Simulate the wake-up notification logic here
+    const minutes = parseInt(req.query.minutes || '0', 10);
+    const simulatedWakeupTime = new Date(Date.now() - (minutes * 60 * 1000));
+
+    console.log(`[DEV] Simulating wake-up from ${simulatedWakeupTime.toISOString()}`);
+    console.log(`[DEV] Notification would trigger at ${new Date(simulatedWakeupTime.getTime() + (90 * 60 * 1000)).toISOString()}`);
+
+    // If we had a queue system, we would create the job here with the simulated time
+
+    res.json({
+      success: true,
+      message: 'Wake-up simulation triggered',
+      simulatedWakeupTime,
+      notificationTime: new Date(simulatedWakeupTime.getTime() + (90 * 60 * 1000)),
+      minutesUntilNotification: minutes > 90 ? 0 : 90 - minutes
+    });
+  } else {
+    res.status(404).json({ error: 'Endpoint not available in production' });
+  }
+});
+
 app.get('/auth/status', (req, res) => {
   res.json({
     authenticated: req.isAuthenticated(),
