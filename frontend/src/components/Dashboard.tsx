@@ -19,7 +19,7 @@ import {
     useTheme
 } from '@chakra-ui/react';
 import { FiSunrise, FiInfo, FiAlertTriangle } from 'react-icons/fi';
-import useAuth from '../hooks/useAuth.ts';
+import useAuth from '../hooks/useAuth.tsx';
 
 // Define interfaces for your data structures
 interface SleepCycle {
@@ -62,7 +62,7 @@ const AlertStatCard = ({ title, value, icon, helpText, iconColor }: {
             <Flex direction="column" alignItems="center" justifyContent="center">
                 <Icon as={icon} w={12} h={12} color={iconColor} mb={4} />
                 <StatLabel fontWeight="medium" fontSize="lg" color={secondaryTextColor}>{title}</StatLabel>
-                <StatNumber fontSize={{base: "3xl", md: "4xl"}} fontWeight="bold" color={primaryTextColor} mt={1}>
+                <StatNumber fontSize={{ base: "3xl", md: "4xl" }} fontWeight="bold" color={primaryTextColor} mt={1}>
                     {value}
                 </StatNumber>
                 <StatHelpText color={secondaryTextColor} mt={1}>{helpText}</StatHelpText>
@@ -148,7 +148,7 @@ const Dashboard = () => {
     if (errorData) { // For other data processing errors
         return (
             <Container centerContent py={10} minH="80vh" display="flex" flexDirection="column" justifyContent="center">
-                 <Alert
+                <Alert
                     status="warning" // Changed to warning for general data errors
                     variant="subtle"
                     flexDirection="column"
@@ -177,7 +177,7 @@ const Dashboard = () => {
     if (!dashboardData || !dashboardData.sleepCycles || dashboardData.sleepCycles.length === 0) {
         return (
             <Container centerContent py={10} minH="80vh" display="flex" flexDirection="column" justifyContent="center">
-                 <Alert
+                <Alert
                     status="info"
                     variant="subtle"
                     flexDirection="column"
@@ -210,14 +210,14 @@ const Dashboard = () => {
     const lightNotificationTime = new Date(wakeUpTime.getTime() + 90 * 60 * 1000);
 
     return (
-        <Container maxW={{ base: "xl", md: "2xl"}} py={{ base: 8, md: 16 }} px={{ base: 4, md: 6 }} minH="80vh" display="flex" flexDirection="column" justifyContent="center">
+        <Container maxW={{ base: "xl", md: "2xl" }} py={{ base: 8, md: 16 }} px={{ base: 4, md: 6 }} minH="80vh" display="flex" flexDirection="column" justifyContent="center">
             <VStack spacing={6} align="center" textAlign="center" w="100%">
                 <Heading as="h1" size="xl" color={primaryTextColor} fontFamily="heading">
                     Your Light90 Target
                 </Heading>
 
                 <Text fontSize="lg" color={secondaryTextColor} maxW="lg">
-                    Based on your last WHOOP-detected wake-up at <Text as="strong" color={primaryTextColor}>{wakeUpTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text> on <Text as="strong" color={primaryTextColor}>{wakeUpTime.toLocaleDateString([], {weekday: 'short', month: 'short', day: 'numeric'})}</Text>.
+                    Based on your last WHOOP-detected wake-up at <Text as="strong" color={primaryTextColor}>{wakeUpTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text> on <Text as="strong" color={primaryTextColor}>{wakeUpTime.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</Text>.
                 </Text>
 
                 <AlertStatCard
@@ -225,7 +225,7 @@ const Dashboard = () => {
                     value={lightNotificationTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     icon={FiSunrise}
                     iconColor={orangeColor} // Using orange from palette
-                    helpText={`On ${lightNotificationTime.toLocaleDateString([], {weekday: 'short', month: 'short', day: 'numeric'})}`}
+                    helpText={`On ${lightNotificationTime.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}`}
                 />
 
                 <Box
@@ -236,7 +236,7 @@ const Dashboard = () => {
                     mt={2}
                 >
                     <Text fontSize="md" color={secondaryTextColor}>
-                        <Icon as={FiInfo} mr={2} color={yellowColor} verticalAlign="middle"/>
+                        <Icon as={FiInfo} mr={2} color={yellowColor} verticalAlign="middle" />
                         Get 10-30 minutes of direct sunlight (no sunglasses, not through a window) around this time to help anchor your circadian rhythm and improve your sleep performance (Score: <Text as="strong" color={primaryTextColor}>{latestSleep.score || 'N/A'}</Text>).
                     </Text>
                 </Box>

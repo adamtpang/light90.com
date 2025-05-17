@@ -127,18 +127,20 @@ app.get('/dev/simulate-wakeup', (req, res) => {
         // Simulate the wake-up notification logic here
         const minutes = parseInt(req.query.minutes || '0', 10);
         const simulatedWakeupTime = new Date(Date.now() - (minutes * 60 * 1000));
+        const caffeineTime = new Date(simulatedWakeupTime.getTime() + (90 * 60 * 1000));
 
         console.log(`[DEV] Simulating wake-up from ${simulatedWakeupTime.toISOString()}`);
-        console.log(`[DEV] Notification would trigger at ${new Date(simulatedWakeupTime.getTime() + (90 * 60 * 1000)).toISOString()}`);
+        console.log(`[DEV] Ideal first caffeine intake time: ${caffeineTime.toISOString()}`);
 
         // If we had a queue system, we would create the job here with the simulated time
 
         res.json({
             success: true,
-            message: 'Wake-up simulation triggered',
+            message: 'Wake-up simulation triggered for caffeine timing.',
             simulatedWakeupTime,
-            notificationTime: new Date(simulatedWakeupTime.getTime() + (90 * 60 * 1000)),
-            minutesUntilNotification: minutes > 90 ? 0 : 90 - minutes
+            idealCaffeineIntakeTime: caffeineTime,
+            minutesSinceWakeup: minutes,
+            minutesUntilCaffeine: Math.max(0, 90 - minutes)
         });
     } else {
         res.status(404).json({ error: 'Endpoint not available in production' });
