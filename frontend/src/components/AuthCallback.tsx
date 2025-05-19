@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { VStack, CircularProgress, Text, useToast, Box } from '@chakra-ui/react';
-import useAuth from '../hooks/useAuth.ts';
+import useAuth from '../hooks/useAuth.tsx';
 
 const AuthCallback: React.FC = () => {
     const navigate = useNavigate();
