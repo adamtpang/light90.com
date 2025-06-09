@@ -113,6 +113,50 @@ const Dashboard: React.FC = () => {
         }
     }, [toast]);
 
+    const testNotification = useCallback(async (minutes: number) => {
+        try {
+            const response = await fetch(`${process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000'}/dev/simulate-wakeup?minutes=${minutes}`, {
+                credentials: 'include'
+            });
+            const data = await response.json();
+
+            if (data.shouldTriggerNotification && notificationPermission === 'granted') {
+                // Trigger browser notification (no tag = each notification is unique)
+                new Notification('☕ Light90 Coffee Time!', {
+                    body: data.notificationMessage,
+                    icon: '/favicon.ico'
+                    // No tag = browser won't replace previous notifications
+                });
+
+                // Also show a toast
+                toast({
+                    title: "🔔 Notification Triggered!",
+                    description: data.notificationMessage,
+                    status: "success",
+                    duration: 5000,
+                    isClosable: true,
+                });
+            } else {
+                // Just show toast with the result
+                toast({
+                    title: `Test Result (${minutes} min ago)`,
+                    description: data.notificationMessage,
+                    status: data.notificationAction === 'missed' ? 'warning' : 'info',
+                    duration: 5000,
+                    isClosable: true,
+                });
+            }
+        } catch (error) {
+            toast({
+                title: "Test Failed",
+                description: "Could not run notification test",
+                status: "error",
+                duration: 3000,
+                isClosable: true,
+            });
+        }
+    }, [notificationPermission, toast]);
+
     useEffect(() => {
         const updatePermission = () => setNotificationPermission(Notification.permission);
         if ('permissions' in navigator) {
@@ -337,6 +381,52 @@ const Dashboard: React.FC = () => {
                             Waiting at least 90 minutes after waking to consume caffeine can help prevent an afternoon crash and optimize your natural cortisol rhythm.
                         </Text>
                     </Box>
+
+                    {process.env.NODE_ENV === 'development' && (
+                        <Card bg={cardBackgroundColor} borderRadius="lg" borderWidth="1px" borderColor={cardBorderColor} boxShadow="lg" mt={6}>
+                            <CardBody>
+                                <VStack spacing={4}>
+                                    <Text fontSize="lg" fontWeight="semibold" color={primaryTextColor}>
+                                        🧪 Notification Tests (Dev Only)
+                                    </Text>
+                                    <Text fontSize="sm" color={tertiaryTextColor} textAlign="center">
+                                        Test notifications for different wake-up scenarios
+                                    </Text>
+                                    <SimpleGrid columns={{ base: 2, md: 4 }} spacing={3} w="full">
+                                        <Button
+                                            size="sm"
+                                            colorScheme="green"
+                                            onClick={() => testNotification(90)}
+                                            leftIcon={<Icon as={FiBell} />}
+                                        >
+                                            It's Time! (90m)
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            colorScheme="blue"
+                                            onClick={() => testNotification(30)}
+                                        >
+                                            Future (30m)
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            colorScheme="orange"
+                                            onClick={() => testNotification(120)}
+                                        >
+                                            Past (120m)
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            colorScheme="red"
+                                            onClick={() => testNotification(180)}
+                                        >
+                                            Way Past (180m)
+                                        </Button>
+                                    </SimpleGrid>
+                                </VStack>
+                            </CardBody>
+                        </Card>
+                    )}
 
                     <Box textAlign="center" mt={4}>
                         <Button

@@ -128,11 +128,31 @@ app.get('/dev/simulate-wakeup', (req, res) => {
         const minutes = parseInt(req.query.minutes || '0', 10);
         const simulatedWakeupTime = new Date(Date.now() - (minutes * 60 * 1000));
         const caffeineTime = new Date(simulatedWakeupTime.getTime() + (90 * 60 * 1000));
+        const minutesUntilCaffeine = Math.max(0, 90 - minutes);
 
         console.log(`[DEV] Simulating wake-up from ${simulatedWakeupTime.toISOString()}`);
         console.log(`[DEV] Ideal first caffeine intake time: ${caffeineTime.toISOString()}`);
 
-        // If we had a queue system, we would create the job here with the simulated time
+        // Determine notification action based on timing
+        let notificationAction = 'none';
+        let notificationMessage = '';
+
+        if (minutesUntilCaffeine === 0) {
+            // It's time for caffeine now!
+            notificationAction = 'immediate';
+            notificationMessage = '☕ Time for your first caffeine! Get some sunlight too! ☀️';
+            console.log(`[DEV] 🔔 TRIGGERING IMMEDIATE NOTIFICATION: ${notificationMessage}`);
+        } else if (minutesUntilCaffeine > 0) {
+            // Schedule future notification
+            notificationAction = 'scheduled';
+            notificationMessage = `☕ First caffeine reminder scheduled for ${minutesUntilCaffeine} minutes from now`;
+            console.log(`[DEV] ⏰ SCHEDULING NOTIFICATION: ${notificationMessage}`);
+        } else {
+            // Past optimal time
+            notificationAction = 'missed';
+            notificationMessage = `⚠️ Optimal caffeine window was ${Math.abs(minutesUntilCaffeine)} minutes ago. Consider timing tomorrow!`;
+            console.log(`[DEV] ⚠️ MISSED WINDOW: ${notificationMessage}`);
+        }
 
         res.json({
             success: true,
@@ -140,7 +160,10 @@ app.get('/dev/simulate-wakeup', (req, res) => {
             simulatedWakeupTime,
             idealCaffeineIntakeTime: caffeineTime,
             minutesSinceWakeup: minutes,
-            minutesUntilCaffeine: Math.max(0, 90 - minutes)
+            minutesUntilCaffeine,
+            notificationAction,
+            notificationMessage,
+            shouldTriggerNotification: notificationAction === 'immediate'
         });
     } else {
         res.status(404).json({ error: 'Endpoint not available in production' });
@@ -159,7 +182,7 @@ app.get('/auth/whoop', passport.authenticate('whoop'));
 app.get('/auth/whoop/callback',
     passport.authenticate('whoop', { failureRedirect: '/auth/failed' }),
     (req, res) => {
-        res.redirect(process.env.CLIENT_URL);
+        res.redirect(`${process.env.CLIENT_URL}/auth/callback`);
     }
 );
 
