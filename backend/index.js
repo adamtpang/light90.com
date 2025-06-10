@@ -227,27 +227,15 @@ app.get('/auth/status', (req, res) => {
 
 app.get('/auth/whoop', passport.authenticate('whoop'));
 
-// WHOOP OAuth callback - handles both validation and actual OAuth flow
-app.get('/callback/whoop', (req, res, next) => {
-    // If no OAuth parameters, this is a validation request - return 200 OK
-    if (!req.query.code && !req.query.error && !req.query.state) {
-        return res.status(200).json({
-            status: 'ready',
-            message: 'WHOOP OAuth callback endpoint is ready',
-            timestamp: new Date().toISOString()
-        });
-    }
-
-    // Otherwise, handle the OAuth callback
-    passport.authenticate('whoop', {
-        failureRedirect: '/auth/failed',
-        failureMessage: true
-    })(req, res, (err) => {
-        if (err) {
-            console.error('WHOOP OAuth error:', err);
-            return res.redirect('/auth/failed');
-        }
-        res.redirect(`${process.env.CLIENT_URL}/auth/callback`);
+// Simple validation endpoint for WHOOP
+app.get('/callback/whoop', (req, res) => {
+    // Always return 200 OK for validation
+    res.status(200).json({
+        status: 'ready',
+        message: 'WHOOP OAuth callback endpoint is ready',
+        timestamp: new Date().toISOString(),
+        hasCode: !!req.query.code,
+        hasError: !!req.query.error
     });
 });
 
