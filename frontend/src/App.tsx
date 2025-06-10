@@ -5,6 +5,7 @@ import theme from './theme.ts';
 import LandingPage from './components/LandingPage.tsx';
 import AuthCallback from './components/AuthCallback.tsx';
 import Dashboard from './components/Dashboard.tsx';
+import PrivacyPolicy from './components/PrivacyPolicy.tsx';
 import { AuthProvider } from './hooks/useAuth.tsx';
 import ProtectedRoute from './components/ProtectedRoute.tsx';
 
@@ -17,6 +18,7 @@ function App() {
                         <Routes>
                             <Route path="/" element={<LandingPage />} />
                             <Route path="/auth/callback" element={<AuthCallback />} />
+                            <Route path="/privacy" element={<PrivacyPolicy />} />
                             <Route
                                 path="/dashboard"
                                 element={
