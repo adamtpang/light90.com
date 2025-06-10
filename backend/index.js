@@ -121,6 +121,54 @@ app.get('/', (req, res) => {
     res.json({ status: 'ok' });
 });
 
+// Privacy Policy endpoint for WHOOP OAuth compliance
+app.get('/privacy', (req, res) => {
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Light90 - Privacy Policy</title>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }
+                h1 { color: #2d3748; }
+                h2 { color: #4a5568; margin-top: 2em; }
+                p { margin-bottom: 1em; }
+            </style>
+        </head>
+        <body>
+            <h1>Light90 Privacy Policy</h1>
+            <p><strong>Last updated:</strong> ${new Date().toDateString()}</p>
+
+            <h2>Information We Collect</h2>
+            <p>Light90 connects to your WHOOP account to access sleep data for the purpose of optimizing your caffeine intake timing. We collect:</p>
+            <ul>
+                <li>Sleep duration and timing data from WHOOP</li>
+                <li>Basic profile information (name, email) for account management</li>
+            </ul>
+
+            <h2>How We Use Your Information</h2>
+            <p>We use your sleep data solely to:</p>
+            <ul>
+                <li>Calculate optimal caffeine intake timing based on your wake-up time</li>
+                <li>Send you personalized notifications about caffeine timing</li>
+                <li>Provide you with insights about your sleep patterns</li>
+            </ul>
+
+            <h2>Data Storage and Security</h2>
+            <p>Your data is stored securely and is not shared with third parties. We implement appropriate security measures to protect your personal information.</p>
+
+            <h2>Your Rights</h2>
+            <p>You can disconnect your WHOOP account from Light90 at any time, which will delete all associated data.</p>
+
+            <h2>Contact Us</h2>
+            <p>If you have questions about this privacy policy, contact us at: adamtpang@gmail.com</p>
+        </body>
+        </html>
+    `);
+});
+
 // DEV TESTING ROUTE - allows triggering the notification without waiting
 app.get('/dev/simulate-wakeup', (req, res) => {
     if (process.env.NODE_ENV !== 'production') {
