@@ -179,21 +179,20 @@ app.get('/auth/status', (req, res) => {
 
 app.get('/auth/whoop', passport.authenticate('whoop'));
 
-app.get('/auth/whoop/callback', (req, res, next) => {
-    // If this is a validation request (no code parameter), return success
-    if (!req.query.code && !req.query.error) {
-        return res.status(200).json({ status: 'callback endpoint ready' });
-    }
-
-    // Otherwise, proceed with normal OAuth flow
-    passport.authenticate('whoop', { failureRedirect: '/auth/failed' })(req, res, (err) => {
-        if (err) {
-            console.error('OAuth authentication error:', err);
-            return res.redirect('/auth/failed');
-        }
+// Alternative callback URL for WHOOP OAuth (some providers prefer different URL patterns)
+app.get('/callback/whoop',
+    passport.authenticate('whoop', { failureRedirect: '/auth/failed' }),
+    (req, res) => {
         res.redirect(`${process.env.CLIENT_URL}/auth/callback`);
-    });
-});
+    }
+);
+
+app.get('/auth/whoop/callback',
+    passport.authenticate('whoop', { failureRedirect: '/auth/failed' }),
+    (req, res) => {
+        res.redirect(`${process.env.CLIENT_URL}/auth/callback`);
+    }
+);
 
 app.get('/auth/failed', (req, res) => {
     res.status(401).json({ error: 'Authentication failed' });
