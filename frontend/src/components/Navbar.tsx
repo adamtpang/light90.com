@@ -64,7 +64,9 @@ export default function Navbar() {
         navigate('/');
     };
 
-    const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
+    // Auto-detect backend URL based on environment
+    const backendUrl = process.env.REACT_APP_BACKEND_URL ||
+        (window.location.hostname !== 'localhost' ? 'https://light90-backend-production.up.railway.app' : 'http://localhost:5000');
 
     const navBg = useColorModeValue('white', 'neutral.900');
     const navBorderColor = useColorModeValue('neutral.200', 'neutral.700');

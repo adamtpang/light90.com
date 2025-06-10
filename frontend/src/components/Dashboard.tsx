@@ -115,7 +115,9 @@ const Dashboard: React.FC = () => {
 
     const testNotification = useCallback(async (minutes: number) => {
         try {
-            const response = await fetch(`${process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000'}/dev/simulate-wakeup?minutes=${minutes}`, {
+            const backendUrl = process.env.REACT_APP_BACKEND_URL ||
+                (window.location.hostname !== 'localhost' ? 'https://light90-backend-production.up.railway.app' : 'http://localhost:5000');
+            const response = await fetch(`${backendUrl}/dev/simulate-wakeup?minutes=${minutes}`, {
                 credentials: 'include'
             });
             const data = await response.json();

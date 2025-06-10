@@ -29,7 +29,23 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
+// Auto-detect backend URL based on environment
+const getBackendUrl = () => {
+    // If explicitly set, use that
+    if (process.env.REACT_APP_BACKEND_URL) {
+        return process.env.REACT_APP_BACKEND_URL;
+    }
+
+    // In production, use the Railway backend URL
+    if (window.location.hostname !== 'localhost') {
+        return 'https://light90-backend-production.up.railway.app';
+    }
+
+    // Default to localhost for development
+    return 'http://localhost:5000';
+};
+
+const backendUrl = getBackendUrl();
 
 interface AuthProviderProps {
     children: ReactNode;
@@ -87,18 +103,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     return (
         <AuthContext.Provider
-            value= {{
-        user,
-            loading,
-            error,
-            login,
-            logout,
-            checkAuthStatus,
+            value={{
+                user,
+                loading,
+                error,
+                login,
+                logout,
+                checkAuthStatus,
             }
-}
+            }
         >
-    { children }
-    </AuthContext.Provider>
+            {children}
+        </AuthContext.Provider>
     );
 };
 
