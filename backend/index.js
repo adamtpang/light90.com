@@ -186,13 +186,17 @@ app.get('/callback/whoop', (req, res) => {
     res.status(200).json({ status: 'ok' });
 });
 
-// Even simpler callback for testing
+// Multiple callback endpoints for testing
 app.get('/callback', (req, res) => {
     res.set({
         'Content-Type': 'application/json',
         'Cache-Control': 'no-cache',
         'Access-Control-Allow-Origin': '*'
     });
+    res.status(200).json({ status: 'ok', service: 'whoop-oauth' });
+});
+
+app.get('/oauth/callback', (req, res) => {
     res.status(200).json({ status: 'ok', service: 'whoop-oauth' });
 });
 
