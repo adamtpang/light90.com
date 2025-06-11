@@ -261,23 +261,44 @@ app.get('/auth/whoop/callback', (req, res, next) => {
     console.log('OAuth callback triggered with query:', req.query);
     console.log('Will redirect to:', `${getClientURL()}/auth/callback`);
 
-    passport.authenticate('whoop', {
-        failureRedirect: '/auth/failed',
-        failureMessage: true
-    })(req, res, (err) => {
+    passport.authenticate('whoop', (err, user, info) => {
+        console.log('🔍 Passport authenticate result:');
+        console.log('Error:', err);
+        console.log('User:', user);
+        console.log('Info:', info);
+
         if (err) {
-            console.error('🚨 OAuth callback error:', err);
+            console.error('🚨 Passport authentication error:', err);
             console.error('Error details:', {
                 message: err.message,
                 code: err.code,
-                status: err.status
+                status: err.status,
+                response: err.response ? {
+                    status: err.response.status,
+                    data: err.response.data
+                } : 'No response data'
             });
             return res.redirect('/auth/failed');
         }
-        const redirectUrl = `${getClientURL()}/auth/callback`;
-        console.log('Redirecting to:', redirectUrl);
-        res.redirect(redirectUrl);
-    });
+
+        if (!user) {
+            console.error('🚨 No user returned from Passport');
+            console.error('Info object:', info);
+            return res.redirect('/auth/failed');
+        }
+
+        // Manual login since we're using custom callback
+        req.logIn(user, (loginErr) => {
+            if (loginErr) {
+                console.error('🚨 Login error:', loginErr);
+                return res.redirect('/auth/failed');
+            }
+            console.log('✅ User logged in successfully');
+            const redirectUrl = `${getClientURL()}/auth/callback`;
+            console.log('Redirecting to:', redirectUrl);
+            res.redirect(redirectUrl);
+        });
+    })(req, res, next);
 });
 
 app.get('/auth/failed', (req, res) => {
