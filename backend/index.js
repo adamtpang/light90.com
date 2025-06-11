@@ -99,33 +99,36 @@ const whoopStrategy = new OAuth2Strategy(
         clientSecret: process.env.WHOOP_CLIENT_SECRET,
         callbackURL: getRedirectURI(),
         scope: ['offline', 'read:sleep', 'read:profile'].join(' '),
-        state: true
+        state: true,
+        customHeaders: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
     },
     async (accessToken, refreshToken, params, profile, done) => {
         try {
             console.log('🔐 OAuth token exchange successful!');
-            console.log('Access Token received:', accessToken ? 'YES' : 'NO');
-            console.log('Refresh Token received:', refreshToken ? 'YES' : 'NO');
-            console.log('Token params:', params);
+            console.log('Access Token received:', accessToken ? `YES (length: ${accessToken.length})` : 'NO');
+            console.log('Refresh Token received:', refreshToken ? `YES (length: ${refreshToken.length})` : 'NO');
+            console.log('Token params:', JSON.stringify(params, null, 2));
 
-            // Get user profile from WHOOP API user endpoint instead of sleep
-            console.log('📡 Fetching user profile from WHOOP API...');
-            const userResponse = await axios.get('https://api.prod.whoop.com/developer/v1/user/profile/basic', {
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Accept': 'application/json'
-                }
-            });
-
-            console.log('✅ User profile fetch successful:', userResponse.data);
+            // For now, let's just complete OAuth without additional API calls
+            // We can fetch user data later once OAuth is working
+            console.log('✅ OAuth flow completed successfully - skipping user profile fetch for now');
 
             const user = {
+                id: 'whoop_user_' + Date.now(), // Temporary user ID
                 accessToken,
                 refreshToken,
                 tokenParams: params,
-                profile: userResponse.data
+                profile: {
+                    provider: 'whoop',
+                    connected: true,
+                    connectedAt: new Date().toISOString()
+                }
             };
 
+            console.log('User object created:', JSON.stringify(user, null, 2));
             return done(null, user);
         } catch (error) {
             console.error('🚨 OAuth strategy error details:');
