@@ -39,7 +39,7 @@ const getBackendUrl = () => {
 
     // Force production URL when on production domain
     if (window.location.hostname === 'light90.com') {
-        console.log('light90.com detected, forcing Railway backend');
+        console.log('🚀 light90.com detected (v2), forcing Railway backend at', new Date().toISOString());
         return 'https://light90-backend-production.up.railway.app';
     }
 
