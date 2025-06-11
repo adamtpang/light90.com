@@ -69,8 +69,8 @@ const AuthCallback: React.FC = () => {
                     position: 'top-right'
                 });
 
-                console.log('🔍 AuthCallback: Navigating to dashboard...');
-                navigate('/dashboard', { replace: true });
+                console.log('🔍 AuthCallback: Navigating to main app...');
+                navigate('/', { replace: true });
             } catch (error) {
                 console.error('🚨 Auth callback error:', error);
                 toast({

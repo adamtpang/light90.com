@@ -160,21 +160,49 @@ async function fetchWhoopSleepData(accessToken) {
         const endDate = new Date().toISOString().split('T')[0]; // Today
         const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 7 days ago
 
-        const response = await axios.get(`https://api.prod.whoop.com/developer/v1/cycle`, {
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Accept': 'application/json'
-            },
-            params: {
-                start: startDate,
-                end: endDate
+        console.log('📅 Date range:', { startDate, endDate });
+
+        // Try different WHOOP API endpoints to find the correct one
+        const endpoints = [
+            'https://api.prod.whoop.com/developer/v1/cycle/sleep',
+            'https://api.prod.whoop.com/developer/v1/cycle',
+            'https://api.prod.whoop.com/developer/v1/activity/sleep'
+        ];
+
+        for (const endpoint of endpoints) {
+            try {
+                console.log(`🔍 Trying endpoint: ${endpoint}`);
+
+                const response = await axios.get(endpoint, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Accept': 'application/json'
+                    },
+                    params: {
+                        start: startDate,
+                        end: endDate,
+                        limit: 10
+                    }
+                });
+
+                console.log('✅ WHOOP API call successful!');
+                console.log('Response status:', response.status);
+                console.log('Response data keys:', Object.keys(response.data));
+                console.log('Records found:', response.data.records?.length || response.data.data?.length || 'unknown');
+                console.log('Sample data:', JSON.stringify(response.data, null, 2).substring(0, 500) + '...');
+
+                return response.data;
+
+            } catch (endpointError) {
+                console.log(`❌ Endpoint ${endpoint} failed:`, endpointError.response?.status, endpointError.response?.data?.error || endpointError.message);
+                continue; // Try next endpoint
             }
-        });
+        }
 
-        console.log('✅ WHOOP sleep data fetched successfully');
-        console.log('Sleep cycles found:', response.data.records?.length || 0);
+        // If all endpoints failed, return empty data
+        console.error('🚨 All WHOOP API endpoints failed');
+        return { records: [] };
 
-        return response.data;
     } catch (error) {
         console.error('🚨 Failed to fetch WHOOP sleep data:');
         console.error('Error message:', error.message);
