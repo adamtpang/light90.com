@@ -136,7 +136,12 @@ passport.use('whoop', whoopStrategy);
 
 // Routes
 app.get('/', (req, res) => {
-    res.json({ status: 'ok' });
+    res.json({
+        status: 'ok',
+        NODE_ENV: process.env.NODE_ENV,
+        COMPUTED_CLIENT_URL: getClientURL(),
+        COMPUTED_REDIRECT_URI: getRedirectURI()
+    });
 });
 
 // Debug endpoint to check environment values
