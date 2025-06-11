@@ -14,6 +14,14 @@ const getRedirectURI = () => {
     return 'http://localhost:5000/auth/whoop/callback';
 };
 
+// Function to get the correct client URL based on environment
+const getClientURL = () => {
+    if (process.env.NODE_ENV === 'production') {
+        return 'https://light90.com';
+    }
+    return 'http://localhost:3000';
+};
+
 // Clean environment variables
 Object.keys(process.env).forEach(key => {
     if (typeof process.env[key] === 'string') {
@@ -30,6 +38,7 @@ console.log('Starting server with environment:', {
     PORT: JSON.stringify(process.env.PORT),
     CLIENT_URL: JSON.stringify(process.env.CLIENT_URL),
     REDIRECT_URI: JSON.stringify(process.env.REDIRECT_URI),
+    COMPUTED_CLIENT_URL: JSON.stringify(getClientURL()),
     COMPUTED_REDIRECT_URI: JSON.stringify(getRedirectURI())
 });
 
@@ -41,7 +50,7 @@ app.use(express.json());
 // CORS configuration
 const corsOptions = {
     origin: process.env.NODE_ENV === 'production'
-        ? process.env.CLIENT_URL
+        ? getClientURL()
         : ['http://localhost:3000', 'http://127.0.0.1:3000'],
     credentials: true,
     methods: ['GET', 'POST', 'OPTIONS'],
@@ -229,7 +238,7 @@ app.get('/auth/whoop/callback', (req, res, next) => {
             console.error('WHOOP OAuth error:', err);
             return res.redirect('/auth/failed');
         }
-        res.redirect(`${process.env.CLIENT_URL}/auth/callback`);
+        res.redirect(`${getClientURL()}/auth/callback`);
     });
 });
 
@@ -239,7 +248,7 @@ app.get('/auth/failed', (req, res) => {
 
 app.get('/auth/logout', (req, res) => {
     req.logout(() => {
-        res.redirect(process.env.CLIENT_URL);
+        res.redirect(getClientURL());
     });
 });
 
