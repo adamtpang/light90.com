@@ -302,7 +302,10 @@ app.get('/auth/whoop/callback', (req, res, next) => {
 });
 
 app.get('/auth/failed', (req, res) => {
-    res.status(401).json({ error: 'Authentication failed' });
+    console.log('🚨 Auth failed endpoint hit');
+    console.log('Request headers:', req.headers);
+    console.log('Request query:', req.query);
+    res.status(200).json({ error: 'Authentication failed', message: 'OAuth flow failed' });
 });
 
 app.get('/auth/logout', (req, res) => {
