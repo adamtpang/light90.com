@@ -5,6 +5,7 @@ const passport = require('passport');
 const session = require('express-session');
 const OAuth2Strategy = require('passport-oauth2');
 const axios = require('axios');
+const jwt = require('jsonwebtoken');
 
 // Function to get the correct redirect URI based on environment
 const getRedirectURI = () => {
@@ -70,13 +71,14 @@ app.use((req, res, next) => {
 const sessionConfig = {
     store: new session.MemoryStore(), // Use MemoryStore in both dev and production for now
     secret: process.env.SESSION_SECRET || 'dev-secret',
+    name: 'light90.sid', // Custom session name
     resave: false,
     saveUninitialized: true, // Save uninitialized sessions for OAuth
     cookie: {
         secure: process.env.NODE_ENV === 'production',
         httpOnly: true,
         maxAge: 24 * 60 * 60 * 1000,
-        sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'lax' // Change from 'none' to 'lax'
+        sameSite: 'lax' // Keep as 'lax' for better OAuth compatibility
     }
 };
 
@@ -184,13 +186,30 @@ async function handleManualTokenExchange(req, res) {
             }
         };
 
+        // Create temporary JWT token for frontend authentication
+        const tempToken = jwt.sign(
+            {
+                userId: user.id,
+                accessToken: user.accessToken,
+                profile: user.profile,
+                timestamp: Date.now()
+            },
+            process.env.SESSION_SECRET || 'dev-secret',
+            { expiresIn: '5m' } // Token expires in 5 minutes
+        );
+
         req.logIn(user, (loginErr) => {
             if (loginErr) {
                 console.error('🚨 Login error:', loginErr);
                 return res.redirect('/auth/failed');
             }
             console.log('✅ User logged in successfully via manual exchange');
-            const redirectUrl = `${getClientURL()}/auth/callback`;
+            console.log('Session after login:', req.session);
+            console.log('Session ID after login:', req.sessionID);
+            console.log('User authenticated after login:', req.isAuthenticated());
+
+            // Pass token to frontend for authentication
+            const redirectUrl = `${getClientURL()}/auth/callback?token=${tempToken}`;
             console.log('Redirecting to:', redirectUrl);
             res.redirect(redirectUrl);
         });
@@ -277,7 +296,62 @@ app.get('/dev/simulate-wakeup', (req, res) => {
     }
 });
 
+// Endpoint to verify JWT token and set up session
+app.post('/auth/verify-token', (req, res) => {
+    try {
+        const { token } = req.body;
+
+        if (!token) {
+            return res.status(400).json({ error: 'Token required' });
+        }
+
+        console.log('🔍 Verifying JWT token...');
+
+        // Verify and decode the JWT token
+        const decoded = jwt.verify(token, process.env.SESSION_SECRET || 'dev-secret');
+        console.log('✅ Token verified successfully:', decoded.userId);
+
+        // Recreate user object from token
+        const user = {
+            id: decoded.userId,
+            accessToken: decoded.accessToken,
+            profile: decoded.profile,
+            tokenParams: { access_token: decoded.accessToken }
+        };
+
+        // Log in the user with the session
+        req.logIn(user, (loginErr) => {
+            if (loginErr) {
+                console.error('🚨 Token login error:', loginErr);
+                return res.status(500).json({ error: 'Login failed' });
+            }
+
+            console.log('✅ User logged in successfully via token');
+            console.log('Session ID:', req.sessionID);
+            console.log('Is authenticated:', req.isAuthenticated());
+
+            res.json({
+                success: true,
+                authenticated: req.isAuthenticated(),
+                user: req.user
+            });
+        });
+
+    } catch (error) {
+        console.error('🚨 Token verification failed:', error.message);
+        res.status(401).json({ error: 'Invalid or expired token' });
+    }
+});
+
 app.get('/auth/status', (req, res) => {
+    console.log('🔍 Auth status check:');
+    console.log('Session ID:', req.sessionID);
+    console.log('Is authenticated:', req.isAuthenticated());
+    console.log('User exists:', !!req.user);
+    console.log('User ID:', req.user?.id || 'N/A');
+    console.log('Session data:', req.session);
+    console.log('Cookies:', req.headers.cookie);
+
     res.json({
         authenticated: req.isAuthenticated(),
         user: req.user

@@ -75,18 +75,31 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setLoading(true);
         setError(null);
         try {
+            console.log('🔍 useAuth: Checking auth status at:', `${backendUrl}/auth/status`);
+
             // Configure axios to send cookies with requests
             const response = await axios.get<{ authenticated: boolean; user: User | null }>(`${backendUrl}/auth/status`, { withCredentials: true });
+
+            console.log('🔍 useAuth: Auth status response:', {
+                status: response.status,
+                authenticated: response.data.authenticated,
+                hasUser: !!response.data.user,
+                userId: response.data.user?.profile?.id || 'N/A'
+            });
+
             if (response.data.authenticated && response.data.user) {
+                console.log('✅ useAuth: User authenticated, setting user state');
                 setUser(response.data.user);
             } else {
+                console.log('❌ useAuth: User not authenticated, clearing user state');
                 setUser(null);
             }
         } catch (err) {
-            console.error('Auth check failed:', err);
+            console.error('🚨 useAuth: Auth check failed:', err);
             const newError = err instanceof Error ? err : new Error('Failed to fetch authentication status');
             setError(newError);
             setUser(null); // Clear user on auth check error
+            throw newError; // Re-throw so AuthCallback can catch it
         } finally {
             setLoading(false);
         }
