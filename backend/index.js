@@ -100,7 +100,7 @@ const whoopStrategy = new OAuth2Strategy(
         clientID: process.env.WHOOP_CLIENT_ID,
         clientSecret: process.env.WHOOP_CLIENT_SECRET,
         callbackURL: getRedirectURI(),
-        scope: ['offline', 'read:sleep', 'read:profile'].join(' '),
+        scope: ['offline', 'read:sleep', 'read:profile', 'read:cycles', 'read:recovery'].join(' '),
         state: true, // Enable state but we'll handle verification manually
         customHeaders: {
             'Accept': 'application/json',
@@ -162,12 +162,11 @@ async function fetchWhoopSleepData(accessToken) {
 
         console.log('📅 Date range:', { startDate, endDate });
 
-        // Try different WHOOP API endpoints to find the correct one
+        // Use correct WHOOP API endpoints from official documentation
         const endpoints = [
-            'https://api.prod.whoop.com/developer/v1/cycle',
-            'https://api.prod.whoop.com/developer/v1/activity/sleep',
-            'https://api.prod.whoop.com/developer/v1/recovery',
-            'https://api.prod.whoop.com/developer/v1/sleep'
+            'https://api.prod.whoop.com/developer/v1/sleep',        // Primary sleep endpoint
+            'https://api.prod.whoop.com/developer/v1/cycle',        // Cycle data (includes sleep cycles)
+            'https://api.prod.whoop.com/developer/v1/recovery'      // Recovery data
         ];
 
         for (const endpoint of endpoints) {
