@@ -97,7 +97,7 @@ const whoopStrategy = new OAuth2Strategy(
         clientSecret: process.env.WHOOP_CLIENT_SECRET,
         callbackURL: getRedirectURI(),
         scope: ['offline', 'read:sleep', 'read:profile'].join(' '),
-        state: true,
+        state: false, // Temporarily disable state verification
         customHeaders: {
             'Accept': 'application/json',
             'Content-Type': 'application/x-www-form-urlencoded'
@@ -223,7 +223,13 @@ app.get('/auth/status', (req, res) => {
     });
 });
 
-app.get('/auth/whoop', passport.authenticate('whoop'));
+app.get('/auth/whoop', (req, res, next) => {
+    console.log('🔍 Starting OAuth - Session Info:');
+    console.log('Session ID:', req.sessionID);
+    console.log('Session data:', req.session);
+    console.log('Cookies:', req.headers.cookie);
+    passport.authenticate('whoop')(req, res, next);
+});
 
 // Simple validation endpoint for WHOOP
 app.get('/callback/whoop', (req, res) => {
@@ -257,6 +263,10 @@ app.get('/auth/whoop/callback', (req, res, next) => {
 
     // Otherwise, handle the OAuth callback
     console.log('OAuth callback triggered with query:', req.query);
+    console.log('🔍 Callback - Session Info:');
+    console.log('Session ID:', req.sessionID);
+    console.log('Session data:', req.session);
+    console.log('Cookies:', req.headers.cookie);
     console.log('Will redirect to:', `${getClientURL()}/auth/callback`);
 
     passport.authenticate('whoop', (err, user, info) => {
