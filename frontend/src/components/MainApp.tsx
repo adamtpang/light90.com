@@ -7,6 +7,14 @@ import Dashboard from './Dashboard.tsx';
 const MainApp: React.FC = () => {
     const { user, loading } = useAuth();
 
+    // Debug logging
+    console.log('🔍 MainApp: User state:', {
+        hasUser: !!user,
+        loading,
+        userId: user?.id,
+        profileRecords: user?.profile?.records?.length || 0
+    });
+
     // Show loading state while checking authentication
     if (loading) {
         return (
@@ -18,10 +26,12 @@ const MainApp: React.FC = () => {
 
     // If user is logged in, show dashboard
     if (user) {
+        console.log('🔍 MainApp: Showing dashboard for user:', user.id);
         return <Dashboard />;
     }
 
     // If user is not logged in, show landing page
+    console.log('🔍 MainApp: No user, showing landing page');
     return <LandingPage />;
 };
 

@@ -433,6 +433,7 @@ app.get('/auth/status', (req, res) => {
     console.log('Is authenticated:', req.isAuthenticated());
     console.log('User exists:', !!req.user);
     console.log('User ID:', req.user?.id || 'N/A');
+    console.log('User profile records:', req.user?.profile?.records?.length || 0);
     console.log('Session data:', req.session);
     console.log('Cookies:', req.headers.cookie);
 
