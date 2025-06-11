@@ -139,7 +139,17 @@ app.get('/', (req, res) => {
     res.json({ status: 'ok' });
 });
 
-
+// Debug endpoint to check environment values
+app.get('/debug/env', (req, res) => {
+    res.json({
+        NODE_ENV: process.env.NODE_ENV,
+        CLIENT_URL: process.env.CLIENT_URL,
+        REDIRECT_URI: process.env.REDIRECT_URI,
+        COMPUTED_CLIENT_URL: getClientURL(),
+        COMPUTED_REDIRECT_URI: getRedirectURI(),
+        timestamp: new Date().toISOString()
+    });
+});
 
 // DEV TESTING ROUTE - allows triggering the notification without waiting
 app.get('/dev/simulate-wakeup', (req, res) => {
