@@ -164,26 +164,44 @@ async function fetchWhoopSleepData(accessToken) {
 
         // Try different WHOOP API endpoints to find the correct one
         const endpoints = [
-            'https://api.prod.whoop.com/developer/v1/cycle/sleep',
             'https://api.prod.whoop.com/developer/v1/cycle',
-            'https://api.prod.whoop.com/developer/v1/activity/sleep'
+            'https://api.prod.whoop.com/developer/v1/activity/sleep',
+            'https://api.prod.whoop.com/developer/v1/recovery',
+            'https://api.prod.whoop.com/developer/v1/sleep'
         ];
 
         for (const endpoint of endpoints) {
             try {
                 console.log(`🔍 Trying endpoint: ${endpoint}`);
 
-                const response = await axios.get(endpoint, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Accept': 'application/json'
-                    },
-                    params: {
-                        start: startDate,
-                        end: endDate,
-                        limit: 10
-                    }
-                });
+                // Try with date parameters first
+                let response;
+                try {
+                    response = await axios.get(endpoint, {
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Accept': 'application/json'
+                        },
+                        params: {
+                            start: startDate,
+                            end: endDate,
+                            limit: 10
+                        }
+                    });
+                } catch (dateError) {
+                    console.log(`  ❌ With date params failed: ${dateError.response?.status}`);
+                    // Try without date parameters
+                    console.log(`  🔍 Trying ${endpoint} without date params...`);
+                    response = await axios.get(endpoint, {
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                            'Accept': 'application/json'
+                        },
+                        params: {
+                            limit: 10
+                        }
+                    });
+                }
 
                 console.log('✅ WHOOP API call successful!');
                 console.log('Response status:', response.status);
@@ -194,7 +212,7 @@ async function fetchWhoopSleepData(accessToken) {
                 return response.data;
 
             } catch (endpointError) {
-                console.log(`❌ Endpoint ${endpoint} failed:`, endpointError.response?.status, endpointError.response?.data?.error || endpointError.message);
+                console.log(`❌ Endpoint ${endpoint} failed completely:`, endpointError.response?.status, endpointError.response?.data?.error || endpointError.message);
                 continue; // Try next endpoint
             }
         }
