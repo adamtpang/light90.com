@@ -103,19 +103,21 @@ const whoopStrategy = new OAuth2Strategy(
     },
     async (accessToken, refreshToken, params, profile, done) => {
         try {
-            // Get user profile from WHOOP API
-            const userResponse = await axios.get('https://api.prod.whoop.com/developer/v1/activity/sleep', {
+            console.log('🔐 OAuth token exchange successful!');
+            console.log('Access Token received:', accessToken ? 'YES' : 'NO');
+            console.log('Refresh Token received:', refreshToken ? 'YES' : 'NO');
+            console.log('Token params:', params);
+
+            // Get user profile from WHOOP API user endpoint instead of sleep
+            console.log('📡 Fetching user profile from WHOOP API...');
+            const userResponse = await axios.get('https://api.prod.whoop.com/developer/v1/user/profile/basic', {
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                    'api-version': '2'
-                },
-                params: {
-                    start_date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
-                    end_date: new Date().toISOString()
+                    'Accept': 'application/json'
                 }
             });
+
+            console.log('✅ User profile fetch successful:', userResponse.data);
 
             const user = {
                 accessToken,
@@ -126,7 +128,15 @@ const whoopStrategy = new OAuth2Strategy(
 
             return done(null, user);
         } catch (error) {
-            console.error('OAuth error:', error);
+            console.error('🚨 OAuth strategy error details:');
+            console.error('Error message:', error.message);
+            console.error('Error code:', error.code);
+            if (error.response) {
+                console.error('HTTP Status:', error.response.status);
+                console.error('Response data:', error.response.data);
+                console.error('Response headers:', error.response.headers);
+            }
+            console.error('Full error:', error);
             return done(error);
         }
     }
@@ -253,7 +263,12 @@ app.get('/auth/whoop/callback', (req, res, next) => {
         failureMessage: true
     })(req, res, (err) => {
         if (err) {
-            console.error('WHOOP OAuth error:', err);
+            console.error('🚨 OAuth callback error:', err);
+            console.error('Error details:', {
+                message: err.message,
+                code: err.code,
+                status: err.status
+            });
             return res.redirect('/auth/failed');
         }
         const redirectUrl = `${getClientURL()}/auth/callback`;
