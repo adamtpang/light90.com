@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, createContext, useContext, ReactNode } from 'react';
+import React, { useState, useEffect, useCallback, createContext, useContext } from 'react';
 import axios from 'axios';
 
 interface UserProfile {
@@ -63,7 +63,7 @@ const getBackendUrl = () => {
 const backendUrl = getBackendUrl();
 
 interface AuthProviderProps {
-    children: ReactNode;
+    children: React.ReactNode;
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
@@ -90,9 +90,32 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             if (response.data.authenticated && response.data.user) {
                 console.log('✅ useAuth: User authenticated, setting user state');
                 setUser(response.data.user);
+                // Clear temporary data if session is working
+                localStorage.removeItem('light90_temp_user');
+                localStorage.removeItem('light90_temp_auth');
             } else {
-                console.log('❌ useAuth: User not authenticated, clearing user state');
-                setUser(null);
+                console.log('❌ useAuth: User not authenticated via session, checking temporary data...');
+
+                // Check for temporary auth data from OAuth callback
+                const tempAuth = localStorage.getItem('light90_temp_auth');
+                const tempUser = localStorage.getItem('light90_temp_user');
+
+                if (tempAuth === 'true' && tempUser) {
+                    console.log('✅ useAuth: Found temporary auth data, using it');
+                    try {
+                        const userData = JSON.parse(tempUser);
+                        setUser(userData);
+                        // Keep temp data for now, will be cleared on next successful session check
+                    } catch (e) {
+                        console.error('❌ useAuth: Failed to parse temporary user data:', e);
+                        localStorage.removeItem('light90_temp_user');
+                        localStorage.removeItem('light90_temp_auth');
+                        setUser(null);
+                    }
+                } else {
+                    console.log('❌ useAuth: No temporary auth data, user not authenticated');
+                    setUser(null);
+                }
             }
         } catch (err) {
             console.error('🚨 useAuth: Auth check failed:', err);

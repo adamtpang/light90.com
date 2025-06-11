@@ -45,6 +45,13 @@ const AuthCallback: React.FC = () => {
 
                     const result = await response.json();
                     console.log('✅ AuthCallback: Token verified successfully:', result);
+
+                    // If token verification succeeded, store user data temporarily
+                    if (result.success && result.authenticated && result.user) {
+                        console.log('🔍 AuthCallback: Storing user data temporarily');
+                        localStorage.setItem('light90_temp_user', JSON.stringify(result.user));
+                        localStorage.setItem('light90_temp_auth', 'true');
+                    }
                 }
 
                 // Now check auth status to update frontend state
