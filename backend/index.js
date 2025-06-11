@@ -245,6 +245,9 @@ app.get('/auth/whoop/callback', (req, res, next) => {
     }
 
     // Otherwise, handle the OAuth callback
+    console.log('OAuth callback triggered with query:', req.query);
+    console.log('Will redirect to:', `${getClientURL()}/auth/callback`);
+
     passport.authenticate('whoop', {
         failureRedirect: '/auth/failed',
         failureMessage: true
@@ -253,7 +256,9 @@ app.get('/auth/whoop/callback', (req, res, next) => {
             console.error('WHOOP OAuth error:', err);
             return res.redirect('/auth/failed');
         }
-        res.redirect(`${getClientURL()}/auth/callback`);
+        const redirectUrl = `${getClientURL()}/auth/callback`;
+        console.log('Redirecting to:', redirectUrl);
+        res.redirect(redirectUrl);
     });
 });
 
