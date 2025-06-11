@@ -37,6 +37,12 @@ const getBackendUrl = () => {
         REACT_APP_BACKEND_URL: process.env.REACT_APP_BACKEND_URL
     });
 
+    // Force production URL when on production domain
+    if (window.location.hostname === 'light90.com') {
+        console.log('light90.com detected, forcing Railway backend');
+        return 'https://light90-backend-production.up.railway.app';
+    }
+
     // If explicitly set, use that
     if (process.env.REACT_APP_BACKEND_URL) {
         console.log('Using explicit REACT_APP_BACKEND_URL:', process.env.REACT_APP_BACKEND_URL);
