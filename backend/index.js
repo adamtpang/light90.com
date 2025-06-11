@@ -72,8 +72,9 @@ const sessionConfig = {
     store: new session.MemoryStore(), // Use MemoryStore in both dev and production for now
     secret: process.env.SESSION_SECRET || 'dev-secret',
     name: 'light90.sid', // Custom session name
-    resave: false,
+    resave: true, // Force session save
     saveUninitialized: true, // Save uninitialized sessions for OAuth
+    rolling: true, // Reset expiration on each request
     cookie: {
         secure: process.env.NODE_ENV === 'production',
         httpOnly: true,
@@ -329,11 +330,22 @@ app.post('/auth/verify-token', (req, res) => {
             console.log('✅ User logged in successfully via token');
             console.log('Session ID:', req.sessionID);
             console.log('Is authenticated:', req.isAuthenticated());
+            console.log('User in session:', req.user);
+            console.log('Session data after login:', req.session);
 
-            res.json({
-                success: true,
-                authenticated: req.isAuthenticated(),
-                user: req.user
+            // Force session save
+            req.session.save((saveErr) => {
+                if (saveErr) {
+                    console.error('🚨 Session save error:', saveErr);
+                    return res.status(500).json({ error: 'Session save failed' });
+                }
+
+                console.log('✅ Session saved successfully');
+                res.json({
+                    success: true,
+                    authenticated: req.isAuthenticated(),
+                    user: req.user
+                });
             });
         });
 
