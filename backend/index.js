@@ -6,6 +6,14 @@ const session = require('express-session');
 const OAuth2Strategy = require('passport-oauth2');
 const axios = require('axios');
 
+// Function to get the correct redirect URI based on environment
+const getRedirectURI = () => {
+    if (process.env.NODE_ENV === 'production') {
+        return 'https://light90-backend-production.up.railway.app/auth/whoop/callback';
+    }
+    return 'http://localhost:5000/auth/whoop/callback';
+};
+
 // Clean environment variables
 Object.keys(process.env).forEach(key => {
     if (typeof process.env[key] === 'string') {
@@ -21,7 +29,8 @@ console.log('Starting server with environment:', {
     NODE_ENV: JSON.stringify(process.env.NODE_ENV),
     PORT: JSON.stringify(process.env.PORT),
     CLIENT_URL: JSON.stringify(process.env.CLIENT_URL),
-    REDIRECT_URI: JSON.stringify(process.env.REDIRECT_URI)
+    REDIRECT_URI: JSON.stringify(process.env.REDIRECT_URI),
+    COMPUTED_REDIRECT_URI: JSON.stringify(getRedirectURI())
 });
 
 const app = express();
@@ -79,7 +88,7 @@ const whoopStrategy = new OAuth2Strategy(
         tokenURL: 'https://api.prod.whoop.com/oauth/oauth2/token',
         clientID: process.env.WHOOP_CLIENT_ID,
         clientSecret: process.env.WHOOP_CLIENT_SECRET,
-        callbackURL: process.env.REDIRECT_URI,
+        callbackURL: getRedirectURI(),
         scope: ['offline', 'read:sleep', 'read:profile'].join(' '),
         state: true
     },
