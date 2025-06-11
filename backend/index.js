@@ -68,9 +68,7 @@ app.use((req, res, next) => {
 
 // Session configuration
 const sessionConfig = {
-    store: process.env.NODE_ENV === 'production'
-        ? null  // In production, the session will be lost on restart, but at least we won't leak memory
-        : new session.MemoryStore(),
+    store: new session.MemoryStore(), // Use MemoryStore in both dev and production for now
     secret: process.env.SESSION_SECRET || 'dev-secret',
     resave: false,
     saveUninitialized: false,
