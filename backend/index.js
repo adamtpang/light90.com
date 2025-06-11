@@ -114,9 +114,9 @@ const whoopStrategy = new OAuth2Strategy(
             console.log('Refresh Token received:', refreshToken ? `YES (length: ${refreshToken.length})` : 'NO');
             console.log('Token params:', JSON.stringify(params, null, 2));
 
-            // For now, let's just complete OAuth without additional API calls
-            // We can fetch user data later once OAuth is working
-            console.log('✅ OAuth flow completed successfully - skipping user profile fetch for now');
+            // Fetch WHOOP sleep data
+            console.log('✅ OAuth flow completed successfully - fetching sleep data...');
+            const sleepData = await fetchWhoopSleepData(accessToken);
 
             const user = {
                 id: 'whoop_user_' + Date.now(), // Temporary user ID
@@ -126,7 +126,9 @@ const whoopStrategy = new OAuth2Strategy(
                 profile: {
                     provider: 'whoop',
                     connected: true,
-                    connectedAt: new Date().toISOString()
+                    connectedAt: new Date().toISOString(),
+                    records: sleepData.records || [], // Add the sleep data here
+                    ...sleepData // Include any other data from WHOOP API
                 }
             };
 
@@ -148,6 +150,42 @@ const whoopStrategy = new OAuth2Strategy(
 );
 
 passport.use('whoop', whoopStrategy);
+
+// Function to fetch WHOOP sleep data
+async function fetchWhoopSleepData(accessToken) {
+    try {
+        console.log('🔍 Fetching WHOOP sleep data...');
+
+        // Get sleep data from the last 7 days
+        const endDate = new Date().toISOString().split('T')[0]; // Today
+        const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 7 days ago
+
+        const response = await axios.get(`https://api.prod.whoop.com/developer/v1/cycle`, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Accept': 'application/json'
+            },
+            params: {
+                start: startDate,
+                end: endDate
+            }
+        });
+
+        console.log('✅ WHOOP sleep data fetched successfully');
+        console.log('Sleep cycles found:', response.data.records?.length || 0);
+
+        return response.data;
+    } catch (error) {
+        console.error('🚨 Failed to fetch WHOOP sleep data:');
+        console.error('Error message:', error.message);
+        if (error.response) {
+            console.error('HTTP Status:', error.response.status);
+            console.error('Response data:', error.response.data);
+        }
+        // Return empty data instead of throwing - we don't want to break OAuth for this
+        return { records: [] };
+    }
+}
 
 // Manual token exchange function for testing
 async function handleManualTokenExchange(req, res) {
@@ -175,7 +213,10 @@ async function handleManualTokenExchange(req, res) {
 
         console.log('✅ Manual token exchange successful!', tokenResponse.data);
 
-        // Create user object and login
+        // Fetch WHOOP sleep data
+        const sleepData = await fetchWhoopSleepData(tokenResponse.data.access_token);
+
+        // Create user object with real sleep data
         const user = {
             id: 'whoop_user_' + Date.now(),
             accessToken: tokenResponse.data.access_token,
@@ -184,7 +225,9 @@ async function handleManualTokenExchange(req, res) {
             profile: {
                 provider: 'whoop',
                 connected: true,
-                connectedAt: new Date().toISOString()
+                connectedAt: new Date().toISOString(),
+                records: sleepData.records || [], // Add the sleep data here
+                ...sleepData // Include any other data from WHOOP API
             }
         };
 
