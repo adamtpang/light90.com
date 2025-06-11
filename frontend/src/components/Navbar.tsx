@@ -65,8 +65,28 @@ export default function Navbar() {
     };
 
     // Auto-detect backend URL based on environment
-    const backendUrl = process.env.REACT_APP_BACKEND_URL ||
-        (window.location.hostname !== 'localhost' ? 'https://light90-backend-production.up.railway.app' : 'http://localhost:5000');
+    const getBackendUrl = () => {
+        // Force production URL when on production domain
+        if (window.location.hostname === 'light90.com') {
+            console.log('🚀 Navbar: light90.com detected, forcing Railway backend');
+            return 'https://light90-backend-production.up.railway.app';
+        }
+
+        // If explicitly set, use that
+        if (process.env.REACT_APP_BACKEND_URL) {
+            return process.env.REACT_APP_BACKEND_URL;
+        }
+
+        // In production, use the Railway backend URL
+        if (window.location.hostname !== 'localhost') {
+            return 'https://light90-backend-production.up.railway.app';
+        }
+
+        // Default to localhost for development
+        return 'http://localhost:5000';
+    };
+
+    const backendUrl = getBackendUrl();
 
     const navBg = useColorModeValue('white', 'neutral.900');
     const navBorderColor = useColorModeValue('neutral.200', 'neutral.700');

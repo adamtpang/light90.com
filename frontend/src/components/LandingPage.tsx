@@ -11,8 +11,30 @@ import {
 } from '@chakra-ui/react';
 import { FiLink } from 'react-icons/fi'; // Using a generic link icon for simplicity
 
+// Auto-detect backend URL based on environment
+const getBackendUrl = () => {
+    // Force production URL when on production domain
+    if (window.location.hostname === 'light90.com') {
+        console.log('🚀 LandingPage: light90.com detected, forcing Railway backend');
+        return 'https://light90-backend-production.up.railway.app';
+    }
+
+    // If explicitly set, use that
+    if (process.env.REACT_APP_BACKEND_URL) {
+        return process.env.REACT_APP_BACKEND_URL;
+    }
+
+    // In production, use the Railway backend URL
+    if (window.location.hostname !== 'localhost') {
+        return 'https://light90-backend-production.up.railway.app';
+    }
+
+    // Default to localhost for development
+    return 'http://localhost:5000';
+};
+
 const LandingPage: React.FC = () => {
-    const backendUrl = 'http://localhost:5000'; // Direct URL, ensure this is correct for your setup
+    const backendUrl = getBackendUrl();
     const theme = useTheme();
 
     // Define colors from the theme, assuming dark mode is default
