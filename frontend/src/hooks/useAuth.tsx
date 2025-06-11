@@ -31,17 +31,26 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Auto-detect backend URL based on environment
 const getBackendUrl = () => {
+    // Debug logging
+    console.log('Frontend environment detection:', {
+        hostname: window.location.hostname,
+        REACT_APP_BACKEND_URL: process.env.REACT_APP_BACKEND_URL
+    });
+
     // If explicitly set, use that
     if (process.env.REACT_APP_BACKEND_URL) {
+        console.log('Using explicit REACT_APP_BACKEND_URL:', process.env.REACT_APP_BACKEND_URL);
         return process.env.REACT_APP_BACKEND_URL;
     }
 
     // In production, use the Railway backend URL
     if (window.location.hostname !== 'localhost') {
+        console.log('Production detected, using Railway backend');
         return 'https://light90-backend-production.up.railway.app';
     }
 
     // Default to localhost for development
+    console.log('Development detected, using localhost backend');
     return 'http://localhost:5000';
 };
 
