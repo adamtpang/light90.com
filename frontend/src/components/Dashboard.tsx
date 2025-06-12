@@ -125,9 +125,31 @@ const Dashboard: React.FC = () => {
                 (window.location.hostname !== 'localhost' ? 'https://light90-backend-production.up.railway.app' : 'http://localhost:5000');
 
             console.log('🔄 Refreshing sleep data...');
-            const response = await fetch(`${backendUrl}/api/refresh-sleep-data`, {
+
+            // Get auth token from localStorage if available
+            let authToken = null;
+            try {
+                authToken = localStorage.getItem('light90_jwt_token'); // Use JWT token for authentication
+                if (!authToken) {
+                    console.warn('No JWT token found in localStorage');
+                }
+            } catch (e) {
+                console.warn('Could not get JWT token from localStorage:', e);
+            }
+
+            const requestOptions: RequestInit = {
                 credentials: 'include'
-            });
+            };
+
+            // Add authorization header if we have a token
+            if (authToken) {
+                requestOptions.headers = {
+                    'Authorization': `Bearer ${authToken}`
+                };
+                console.log('🔐 Including auth token in request');
+            }
+
+            const response = await fetch(`${backendUrl}/api/refresh-sleep-data`, requestOptions);
 
             if (!response.ok) {
                 throw new Error(`Failed to refresh sleep data: ${response.status}`);
@@ -187,9 +209,27 @@ const Dashboard: React.FC = () => {
         try {
             const backendUrl = process.env.REACT_APP_BACKEND_URL ||
                 (window.location.hostname !== 'localhost' ? 'https://light90-backend-production.up.railway.app' : 'http://localhost:5000');
-            const response = await fetch(`${backendUrl}/dev/simulate-wakeup?minutes=${minutes}`, {
+
+            // Get JWT token for authentication
+            let authToken = null;
+            try {
+                authToken = localStorage.getItem('light90_jwt_token');
+            } catch (e) {
+                console.warn('Could not get JWT token for test notification:', e);
+            }
+
+            const requestOptions: RequestInit = {
                 credentials: 'include'
-            });
+            };
+
+            // Add authorization header if we have a token
+            if (authToken) {
+                requestOptions.headers = {
+                    'Authorization': `Bearer ${authToken}`
+                };
+            }
+
+            const response = await fetch(`${backendUrl}/dev/simulate-wakeup?minutes=${minutes}`, requestOptions);
             const data = await response.json();
 
             if (data.shouldTriggerNotification && notificationPermission === 'granted' && 'Notification' in window) {

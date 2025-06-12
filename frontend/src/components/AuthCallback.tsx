@@ -62,6 +62,8 @@ const AuthCallback: React.FC = () => {
                             try {
                                 localStorage.setItem('light90_temp_user', JSON.stringify(result.user));
                                 localStorage.setItem('light90_temp_auth', 'true');
+                                localStorage.setItem('light90_jwt_token', token); // Store JWT token for API calls
+                                console.log('✅ AuthCallback: JWT token stored for API calls');
                             } catch (storageError) {
                                 console.error('🚨 AuthCallback: localStorage failed (mobile browser?):', storageError);
                                 // Continue anyway, session might still work

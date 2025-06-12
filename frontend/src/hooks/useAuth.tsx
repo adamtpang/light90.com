@@ -132,6 +132,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 try {
                     localStorage.removeItem('light90_temp_user');
                     localStorage.removeItem('light90_temp_auth');
+                    localStorage.removeItem('light90_jwt_token');
                 } catch (storageError) {
                     console.warn('⚠️ useAuth: localStorage cleanup failed (mobile browser?):', storageError);
                 }
@@ -235,10 +236,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             await axios.get(`${backendUrl}/auth/logout`, { withCredentials: true });
             setUser(null);
             setError(null);
+
+            // Clean up all auth-related localStorage data
+            try {
+                localStorage.removeItem('light90_temp_user');
+                localStorage.removeItem('light90_temp_auth');
+                localStorage.removeItem('light90_jwt_token');
+                console.log('✅ useAuth: Cleaned up localStorage on logout');
+            } catch (storageError) {
+                console.warn('⚠️ useAuth: localStorage cleanup failed on logout:', storageError);
+            }
         } catch (err) {
             console.error('Logout failed:', err);
             const newError = err instanceof Error ? err : new Error('Logout failed');
             setError(newError);
+
+            // Even if logout failed, clean up localStorage
+            try {
+                localStorage.removeItem('light90_temp_user');
+                localStorage.removeItem('light90_temp_auth');
+                localStorage.removeItem('light90_jwt_token');
+                console.log('✅ useAuth: Cleaned up localStorage after logout error');
+            } catch (storageError) {
+                console.warn('⚠️ useAuth: localStorage cleanup failed after logout error:', storageError);
+            }
         } finally {
             setLoading(false);
         }
