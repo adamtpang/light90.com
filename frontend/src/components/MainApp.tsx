@@ -1,11 +1,13 @@
 import React from 'react';
-import { Box, Text, VStack, Spinner, Alert, AlertIcon } from '@chakra-ui/react';
+import { Box, Text, VStack, Spinner, Alert, AlertIcon, Button } from '@chakra-ui/react';
 import useAuth from '../hooks/useAuth.tsx';
 import LandingPage from './LandingPage.tsx';
 import Dashboard from './Dashboard.tsx';
 
 const MainApp: React.FC = () => {
     const { user, loading, error } = useAuth();
+    const [loadingTimeout, setLoadingTimeout] = React.useState(false);
+    const [forceShowContent, setForceShowContent] = React.useState(false);
 
     // Enhanced mobile debugging
     React.useEffect(() => {
@@ -34,8 +36,22 @@ const MainApp: React.FC = () => {
         (window as any).light90Debug = debugInfo;
     }, [user, loading, error]);
 
+    // Loading timeout mechanism - if loading takes too long, show fallback
+    React.useEffect(() => {
+        if (loading) {
+            const timeout = setTimeout(() => {
+                console.log('⏰ MainApp: Loading timeout reached, showing fallback');
+                setLoadingTimeout(true);
+            }, 8000); // 8 second timeout
+
+            return () => clearTimeout(timeout);
+        } else {
+            setLoadingTimeout(false);
+        }
+    }, [loading]);
+
     // Error boundary fallback
-    if (error) {
+    if (error && !forceShowContent) {
         console.error('🚨 MainApp: Error state detected:', error);
         return (
             <Box minH="100vh" display="flex" alignItems="center" justifyContent="center" p={4}>
@@ -49,6 +65,13 @@ const MainApp: React.FC = () => {
                             </Text>
                         </Box>
                     </Alert>
+                    <Button
+                        colorScheme="blue"
+                        onClick={() => setForceShowContent(true)}
+                        size="sm"
+                    >
+                        Continue Anyway
+                    </Button>
                     <Text fontSize="sm" color="gray.500">
                         Try refreshing the page or check your connection
                     </Text>
@@ -57,37 +80,81 @@ const MainApp: React.FC = () => {
         );
     }
 
+    // Loading timeout fallback - show content anyway
+    if (loadingTimeout && !forceShowContent) {
+        console.log('⏰ MainApp: Showing loading timeout fallback');
+        return (
+            <Box minH="100vh" display="flex" alignItems="center" justifyContent="center" p={4}>
+                <VStack spacing={4} maxW="md" textAlign="center">
+                    <Alert status="warning" borderRadius="md">
+                        <AlertIcon />
+                        <Box>
+                            <Text fontWeight="bold">Taking longer than expected</Text>
+                            <Text fontSize="sm" mt={1}>
+                                The app is taking a while to load. This might be due to a slow connection.
+                            </Text>
+                        </Box>
+                    </Alert>
+                    <VStack spacing={2}>
+                        <Button
+                            colorScheme="blue"
+                            onClick={() => setForceShowContent(true)}
+                            size="sm"
+                        >
+                            Continue to App
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={() => window.location.reload()}
+                            size="sm"
+                        >
+                            Refresh Page
+                        </Button>
+                    </VStack>
+                </VStack>
+            </Box>
+        );
+    }
+
     // Enhanced loading state with timeout protection
-    if (loading) {
+    if (loading && !forceShowContent && !loadingTimeout) {
         console.log('⏳ MainApp: Loading state active');
         return (
             <Box minH="100vh" display="flex" alignItems="center" justifyContent="center" p={4}>
                 <VStack spacing={4}>
                     <Spinner size="xl" color="brand.500" thickness="4px" />
                     <Text color="gray.600">Loading your dashboard...</Text>
+                    <Text fontSize="sm" color="gray.500">
+                        This usually takes just a few seconds
+                    </Text>
                 </VStack>
             </Box>
         );
     }
 
     // If user is logged in, show dashboard with error boundary
-    if (user) {
-        console.log('✅ MainApp: Showing dashboard for user:', user.profile?.id || 'unknown');
+    if (user || forceShowContent) {
+        console.log('✅ MainApp: Showing dashboard for user:', user?.profile?.id || 'forced');
         try {
             return <Dashboard />;
         } catch (dashboardError) {
             console.error('🚨 MainApp: Dashboard rendering error:', dashboardError);
             return (
                 <Box minH="100vh" display="flex" alignItems="center" justifyContent="center" p={4}>
-                    <Alert status="error" maxW="md">
-                        <AlertIcon />
-                        <Box>
-                            <Text fontWeight="bold">Dashboard Error</Text>
-                            <Text fontSize="sm" mt={1}>
-                                Unable to load your dashboard. Please try refreshing.
-                            </Text>
-                        </Box>
-                    </Alert>
+                    <VStack spacing={4}>
+                        <Alert status="error" maxW="md">
+                            <AlertIcon />
+                            <Box>
+                                <Text fontWeight="bold">Dashboard Error</Text>
+                                <Text fontSize="sm" mt={1}>
+                                    Unable to load your dashboard. Please try refreshing.
+                                </Text>
+                            </Box>
+                        </Alert>
+                        <Button onClick={() => window.location.reload()} size="sm">
+                            Refresh Page
+                        </Button>
+                    </VStack>
                 </Box>
             );
         }

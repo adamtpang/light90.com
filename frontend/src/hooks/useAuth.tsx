@@ -79,6 +79,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         console.log('🔍 useAuth: Starting auth check', { isMobile, timestamp: new Date().toISOString() });
 
+        // Add overall timeout for the entire auth check process
+        const overallTimeout = setTimeout(() => {
+            console.log('⏰ useAuth: Overall auth check timeout, forcing completion');
+            setLoading(false);
+            setError(new Error('Authentication check timed out. Using offline mode.'));
+
+            // Try to use localStorage as final fallback
+            try {
+                const tempAuth = localStorage.getItem('light90_temp_auth');
+                const tempUser = localStorage.getItem('light90_temp_user');
+
+                if (tempAuth === 'true' && tempUser) {
+                    console.log('✅ useAuth: Using localStorage fallback after timeout');
+                    const userData = JSON.parse(tempUser);
+                    setUser(userData);
+                    setError(null);
+                }
+            } catch (fallbackError) {
+                console.error('🚨 useAuth: Final localStorage fallback failed:', fallbackError);
+            }
+        }, 12000); // 12 second overall timeout
+
         try {
             console.log('🔍 useAuth: Checking auth status at:', `${backendUrl}/auth/status`);
 
@@ -94,6 +116,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             });
 
             clearTimeout(timeoutId);
+            clearTimeout(overallTimeout);
 
             console.log('🔍 useAuth: Auth status response:', {
                 status: response.status,
@@ -151,6 +174,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 }
             }
         } catch (err) {
+            clearTimeout(overallTimeout);
             console.error('🚨 useAuth: Auth check failed:', err);
 
             // Handle different types of errors
@@ -189,6 +213,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             setUser(null); // Clear user on auth check error
             throw newError; // Re-throw so AuthCallback can catch it
         } finally {
+            clearTimeout(overallTimeout);
             setLoading(false);
         }
     }, []);
