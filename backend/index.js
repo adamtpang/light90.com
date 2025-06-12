@@ -177,11 +177,9 @@ async function fetchWhoopSleepData(accessToken) {
             console.error('This means the access token is invalid or expired');
         }
 
-        // Use correct WHOOP API endpoints from official documentation
+        // Use the working WHOOP API endpoint from your previous version
         const endpoints = [
-            'https://api.prod.whoop.com/developer/v1/sleep',        // Primary sleep endpoint
-            'https://api.prod.whoop.com/developer/v1/cycle',        // Cycle data (includes sleep cycles)
-            'https://api.prod.whoop.com/developer/v1/recovery'      // Recovery data
+            'https://api.prod.whoop.com/developer/v1/activity/sleep'  // This was working in your old version
         ];
 
         for (const endpoint of endpoints) {
@@ -194,12 +192,13 @@ async function fetchWhoopSleepData(accessToken) {
                     response = await axios.get(endpoint, {
                         headers: {
                             'Authorization': `Bearer ${accessToken}`,
-                            'Accept': 'application/json'
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                            'api-version': '2'
                         },
                         params: {
-                            start: startDate,
-                            end: endDate,
-                            limit: 10
+                            start_date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+                            end_date: new Date().toISOString()
                         }
                     });
                 } catch (dateError) {
@@ -210,10 +209,13 @@ async function fetchWhoopSleepData(accessToken) {
                     response = await axios.get(endpoint, {
                         headers: {
                             'Authorization': `Bearer ${accessToken}`,
-                            'Accept': 'application/json'
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json',
+                            'api-version': '2'
                         },
                         params: {
-                            limit: 10
+                            start_date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+                            end_date: new Date().toISOString()
                         }
                     });
                 }
