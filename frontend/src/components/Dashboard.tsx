@@ -42,7 +42,9 @@ const Dashboard: React.FC = () => {
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
     const [loadingData, setLoadingData] = useState(true);
     const [errorData, setErrorData] = useState<string | null>(null);
-    const [notificationPermission, setNotificationPermission] = useState(Notification.permission);
+    const [notificationPermission, setNotificationPermission] = useState(
+        typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'denied'
+    );
     const [notificationScheduled, setNotificationScheduled] = useState(false);
 
     const theme = useTheme();
@@ -122,7 +124,7 @@ const Dashboard: React.FC = () => {
             });
             const data = await response.json();
 
-            if (data.shouldTriggerNotification && notificationPermission === 'granted') {
+            if (data.shouldTriggerNotification && notificationPermission === 'granted' && 'Notification' in window) {
                 // Trigger browser notification (no tag = each notification is unique)
                 new Notification('☕ Light90 Coffee Time!', {
                     body: data.notificationMessage,
@@ -160,10 +162,16 @@ const Dashboard: React.FC = () => {
     }, [notificationPermission, toast]);
 
     useEffect(() => {
-        const updatePermission = () => setNotificationPermission(Notification.permission);
+        const updatePermission = () => {
+            if ('Notification' in window) {
+                setNotificationPermission(Notification.permission);
+            }
+        };
         if ('permissions' in navigator) {
             navigator.permissions.query({ name: 'notifications' }).then(permissionStatus => {
                 permissionStatus.onchange = updatePermission;
+            }).catch(() => {
+                // Permissions API not supported, ignore
             });
         }
         return () => {
@@ -210,11 +218,13 @@ const Dashboard: React.FC = () => {
 
             if (timeToNotification > 0) {
                 const timerId = setTimeout(() => {
-                    new Notification('Time for your Coffee! ☕️', {
-                        body: `It's approx. 90 minutes since you woke up. Enjoy your brew!`,
-                        icon: '/logo192.png',
-                        tag: 'coffee-time'
-                    });
+                    if ('Notification' in window && Notification.permission === 'granted') {
+                        new Notification('Time for your Coffee! ☕️', {
+                            body: `It's approx. 90 minutes since you woke up. Enjoy your brew!`,
+                            icon: '/logo192.png',
+                            tag: 'coffee-time'
+                        });
+                    }
                     setNotificationScheduled(false);
                 }, timeToNotification);
                 setNotificationScheduled(true);
