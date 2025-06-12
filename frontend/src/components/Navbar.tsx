@@ -201,7 +201,25 @@ export default function Navbar() {
                                 <MenuItem fontSize="sm" as={RouterLink} to="/profile" _hover={{ bg: menuItemHoverBg }} py={1}>Profile</MenuItem>
                                 <MenuItem fontSize="sm" as={RouterLink} to="/settings" _hover={{ bg: menuItemHoverBg }} py={1}>Settings</MenuItem>
                                 <MenuDivider borderColor={menuDividerBorderColor} my={1} />
-                                <MenuItem fontSize="sm" onClick={handleLogout} color={logoutItemColor} _hover={{ bg: logoutItemHoverBg }} py={1}>
+                                <MenuItem fontSize="sm" onClick={() => {
+                                    console.log('🔄 Clearing cache and re-authenticating...');
+                                    // Clear all localStorage data
+                                    try {
+                                        localStorage.removeItem('light90_temp_user');
+                                        localStorage.removeItem('light90_temp_auth');
+                                        localStorage.removeItem('light90_jwt_token');
+                                        console.log('✅ localStorage cleared');
+                                    } catch (e) {
+                                        console.warn('Could not clear localStorage:', e);
+                                    }
+                                    // Redirect to OAuth
+                                    const backendUrl = process.env.REACT_APP_BACKEND_URL ||
+                                        (window.location.hostname !== 'localhost' ? 'https://light90-backend-production.up.railway.app' : 'http://localhost:5000');
+                                    window.location.href = `${backendUrl}/auth/whoop`;
+                                }} color={logoutItemColor} _hover={{ bg: logoutItemHoverBg }} py={1}>
+                                    Reset Auth
+                                </MenuItem>
+                                <MenuItem fontSize="sm" onClick={logout} color={logoutItemColor} _hover={{ bg: logoutItemHoverBg }} py={1}>
                                     Sign out
                                 </MenuItem>
                             </MenuList>
