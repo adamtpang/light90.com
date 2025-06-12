@@ -337,6 +337,40 @@ async function handleManualTokenExchange(req, res) {
     }
 }
 
+// Authentication middleware that supports both session and token-based auth
+const authenticateRequest = (req, res, next) => {
+    // First, try session-based authentication
+    if (req.isAuthenticated() && req.user) {
+        console.log('✅ Session-based authentication successful');
+        return next();
+    }
+
+    // If session auth failed, try token-based authentication
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.substring(7);
+        try {
+            const decoded = jwt.verify(token, process.env.SESSION_SECRET || 'dev-secret');
+            console.log('✅ Token-based authentication successful');
+
+            // Reconstruct user object from token
+            req.user = {
+                id: decoded.userId,
+                accessToken: decoded.accessToken,
+                profile: decoded.profile
+            };
+
+            return next();
+        } catch (tokenError) {
+            console.log('❌ Token verification failed:', tokenError.message);
+        }
+    }
+
+    // If both methods failed, return 401
+    console.log('❌ Authentication failed - no valid session or token');
+    return res.status(401).json({ error: 'Not authenticated' });
+};
+
 // Routes
 app.get('/', (req, res) => {
     res.json({
@@ -602,13 +636,11 @@ app.get('/auth/logout', (req, res) => {
 });
 
 // Add endpoint to refresh sleep data
-app.get('/api/refresh-sleep-data', async (req, res) => {
+app.get('/api/refresh-sleep-data', authenticateRequest, async (req, res) => {
     try {
         console.log('🔄 Refreshing sleep data...');
-
-        if (!req.isAuthenticated() || !req.user) {
-            return res.status(401).json({ error: 'Not authenticated' });
-        }
+        console.log('User ID:', req.user?.id);
+        console.log('Has access token:', !!req.user?.accessToken);
 
         const accessToken = req.user.accessToken;
         if (!accessToken) {
@@ -622,12 +654,14 @@ app.get('/api/refresh-sleep-data', async (req, res) => {
         req.user.profile.records = freshSleepData.records || [];
         req.user.profile.lastRefresh = new Date().toISOString();
 
-        // Update the session
-        req.session.save((err) => {
-            if (err) {
-                console.error('Failed to save session:', err);
-            }
-        });
+        // Update the session if it exists
+        if (req.session && req.session.passport) {
+            req.session.save((err) => {
+                if (err) {
+                    console.error('Failed to save session:', err);
+                }
+            });
+        }
 
         console.log('✅ Sleep data refreshed successfully');
         console.log('Records found:', freshSleepData.records?.length || 0);
