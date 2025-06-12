@@ -74,11 +74,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const checkAuthStatus = useCallback(async () => {
         setLoading(true);
         setError(null);
+
+        // Mobile debugging
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        console.log('🔍 useAuth: Starting auth check', { isMobile, timestamp: new Date().toISOString() });
+
         try {
             console.log('🔍 useAuth: Checking auth status at:', `${backendUrl}/auth/status`);
 
+            // Add timeout for mobile networks
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
             // Configure axios to send cookies with requests
-            const response = await axios.get<{ authenticated: boolean; user: User | null }>(`${backendUrl}/auth/status`, { withCredentials: true });
+            const response = await axios.get<{ authenticated: boolean; user: User | null }>(`${backendUrl}/auth/status`, {
+                withCredentials: true,
+                signal: controller.signal,
+                timeout: 10000
+            });
+
+            clearTimeout(timeoutId);
 
             console.log('🔍 useAuth: Auth status response:', {
                 status: response.status,
@@ -91,14 +106,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 console.log('✅ useAuth: User authenticated, setting user state');
                 setUser(response.data.user);
                 // Clear temporary data if session is working
-                localStorage.removeItem('light90_temp_user');
-                localStorage.removeItem('light90_temp_auth');
+                try {
+                    localStorage.removeItem('light90_temp_user');
+                    localStorage.removeItem('light90_temp_auth');
+                } catch (storageError) {
+                    console.warn('⚠️ useAuth: localStorage cleanup failed (mobile browser?):', storageError);
+                }
             } else {
                 console.log('❌ useAuth: User not authenticated via session, checking temporary data...');
 
-                // Check for temporary auth data from OAuth callback
-                const tempAuth = localStorage.getItem('light90_temp_auth');
-                const tempUser = localStorage.getItem('light90_temp_user');
+                // Mobile-safe localStorage access
+                let tempAuth: string | null = null;
+                let tempUser: string | null = null;
+
+                try {
+                    tempAuth = localStorage.getItem('light90_temp_auth');
+                    tempUser = localStorage.getItem('light90_temp_user');
+                } catch (storageError) {
+                    console.error('🚨 useAuth: localStorage access failed (mobile browser?):', storageError);
+                    // On mobile Safari, localStorage might be disabled in private mode
+                    setUser(null);
+                    return;
+                }
 
                 if (tempAuth === 'true' && tempUser) {
                     console.log('✅ useAuth: Found temporary auth data, using it');
@@ -108,8 +137,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                         // Keep temp data for now, will be cleared on next successful session check
                     } catch (e) {
                         console.error('❌ useAuth: Failed to parse temporary user data:', e);
-                        localStorage.removeItem('light90_temp_user');
-                        localStorage.removeItem('light90_temp_auth');
+                        try {
+                            localStorage.removeItem('light90_temp_user');
+                            localStorage.removeItem('light90_temp_auth');
+                        } catch (cleanupError) {
+                            console.warn('⚠️ useAuth: localStorage cleanup failed:', cleanupError);
+                        }
                         setUser(null);
                     }
                 } else {
@@ -119,8 +152,40 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             }
         } catch (err) {
             console.error('🚨 useAuth: Auth check failed:', err);
-            const newError = err instanceof Error ? err : new Error('Failed to fetch authentication status');
+
+            // Handle different types of errors
+            let errorMessage = 'Failed to fetch authentication status';
+
+            if (err.name === 'AbortError') {
+                errorMessage = 'Authentication check timed out. Please check your connection.';
+            } else if (err.code === 'NETWORK_ERROR' || err.message?.includes('Network Error')) {
+                errorMessage = 'Network error. Please check your internet connection.';
+            } else if (err.response?.status === 500) {
+                errorMessage = 'Server error. Please try again later.';
+            }
+
+            const newError = new Error(errorMessage);
             setError(newError);
+
+            // On mobile, try to fall back to localStorage if network fails
+            if (isMobile) {
+                console.log('📱 useAuth: Mobile network error, trying localStorage fallback...');
+                try {
+                    const tempAuth = localStorage.getItem('light90_temp_auth');
+                    const tempUser = localStorage.getItem('light90_temp_user');
+
+                    if (tempAuth === 'true' && tempUser) {
+                        console.log('✅ useAuth: Using localStorage fallback on mobile');
+                        const userData = JSON.parse(tempUser);
+                        setUser(userData);
+                        setError(null); // Clear error if we have fallback data
+                        return;
+                    }
+                } catch (fallbackError) {
+                    console.error('🚨 useAuth: Mobile localStorage fallback failed:', fallbackError);
+                }
+            }
+
             setUser(null); // Clear user on auth check error
             throw newError; // Re-throw so AuthCallback can catch it
         } finally {

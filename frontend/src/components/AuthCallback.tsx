@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { VStack, CircularProgress, Text, useToast, Box } from '@chakra-ui/react';
+import { VStack, CircularProgress, Text, useToast, Box, Alert, AlertIcon } from '@chakra-ui/react';
 import useAuth from '../hooks/useAuth.tsx';
 
 const AuthCallback: React.FC = () => {
@@ -8,11 +8,13 @@ const AuthCallback: React.FC = () => {
     const location = useLocation();
     const { checkAuthStatus } = useAuth(); // Assuming checkAuthStatus will fetch and set user
     const toast = useToast();
+    const [error, setError] = React.useState<string | null>(null);
 
     useEffect(() => {
         const processAuth = async () => {
             try {
-                console.log('🔍 AuthCallback: Starting auth process...');
+                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                console.log('🔍 AuthCallback: Starting auth process...', { isMobile });
 
                 // Check if we have a token from the OAuth callback
                 const urlParams = new URLSearchParams(location.search);
@@ -29,28 +31,48 @@ const AuthCallback: React.FC = () => {
                         return process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
                     };
 
-                    // Verify the token with the backend
-                    const response = await fetch(`${getBackendUrl()}/auth/verify-token`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        credentials: 'include',
-                        body: JSON.stringify({ token })
-                    });
+                    // Add timeout for mobile networks
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout for mobile
 
-                    if (!response.ok) {
-                        throw new Error(`Token verification failed: ${response.status}`);
-                    }
+                    try {
+                        // Verify the token with the backend
+                        const response = await fetch(`${getBackendUrl()}/auth/verify-token`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            credentials: 'include',
+                            body: JSON.stringify({ token }),
+                            signal: controller.signal
+                        });
 
-                    const result = await response.json();
-                    console.log('✅ AuthCallback: Token verified successfully:', result);
+                        clearTimeout(timeoutId);
 
-                    // If token verification succeeded, store user data temporarily
-                    if (result.success && result.authenticated && result.user) {
-                        console.log('🔍 AuthCallback: Storing user data temporarily');
-                        localStorage.setItem('light90_temp_user', JSON.stringify(result.user));
-                        localStorage.setItem('light90_temp_auth', 'true');
+                        if (!response.ok) {
+                            throw new Error(`Token verification failed: ${response.status}`);
+                        }
+
+                        const result = await response.json();
+                        console.log('✅ AuthCallback: Token verified successfully:', result);
+
+                        // If token verification succeeded, store user data temporarily with mobile safety
+                        if (result.success && result.authenticated && result.user) {
+                            console.log('🔍 AuthCallback: Storing user data temporarily');
+                            try {
+                                localStorage.setItem('light90_temp_user', JSON.stringify(result.user));
+                                localStorage.setItem('light90_temp_auth', 'true');
+                            } catch (storageError) {
+                                console.error('🚨 AuthCallback: localStorage failed (mobile browser?):', storageError);
+                                // Continue anyway, session might still work
+                            }
+                        }
+                    } catch (fetchError) {
+                        clearTimeout(timeoutId);
+                        if (fetchError.name === 'AbortError') {
+                            throw new Error('Token verification timed out. Please check your connection.');
+                        }
+                        throw fetchError;
                     }
                 }
 
@@ -70,24 +92,63 @@ const AuthCallback: React.FC = () => {
                 });
 
                 console.log('🔍 AuthCallback: Navigating to main app...');
-                navigate('/', { replace: true });
+
+                // Add small delay for mobile to ensure state updates
+                if (isMobile) {
+                    setTimeout(() => {
+                        navigate('/', { replace: true });
+                    }, 100);
+                } else {
+                    navigate('/', { replace: true });
+                }
             } catch (error) {
                 console.error('🚨 Auth callback error:', error);
+                const errorMessage = (error as Error)?.message || 'An error occurred during authentication. Please try again.';
+                setError(errorMessage);
+
                 toast({
                     title: 'Authentication Failed',
-                    description: (error as Error)?.message || 'An error occurred during authentication. Please try again.',
+                    description: errorMessage,
                     status: 'error',
                     duration: 9000,
                     isClosable: true,
                     position: 'top-right'
                 });
+
                 console.log('🔍 AuthCallback: Error occurred, navigating to home...');
-                navigate('/', { replace: true }); // Redirect to home on error
+
+                // Add delay for mobile error handling
+                const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                if (isMobile) {
+                    setTimeout(() => {
+                        navigate('/', { replace: true });
+                    }, 2000); // Give user time to read error
+                } else {
+                    navigate('/', { replace: true });
+                }
             }
         };
 
         processAuth();
     }, [navigate, location, checkAuthStatus, toast]);
+
+    // Show error state if there's an error
+    if (error) {
+        return (
+            <VStack minH="80vh" justify="center" align="center" spacing={4} p={5}>
+                <Alert status="error" maxW="md" borderRadius="md">
+                    <AlertIcon />
+                    <Box>
+                        <Text fontWeight="bold">Authentication Error</Text>
+                        <Text fontSize="sm" mt={1}>{error}</Text>
+                    </Box>
+                </Alert>
+                <Text color="neutral.500" textAlign="center">
+                    Redirecting you back to the home page...
+                </Text>
+            </VStack>
+        );
+    }
 
     return (
         <VStack minH="80vh" justify="center" align="center" spacing={4} p={5}>
