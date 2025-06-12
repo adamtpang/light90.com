@@ -537,16 +537,31 @@ app.get('/auth/whoop/callback', (req, res, next) => {
         console.log('Info:', info);
         console.log('OAuth query params:', req.query);
 
-        // Always try manual token exchange if we have a code, regardless of Passport result
+        // If Passport succeeded, use that result
+        if (user && !err) {
+            console.log('✅ Passport authentication successful, logging in user');
+            req.logIn(user, (loginErr) => {
+                if (loginErr) {
+                    console.error('🚨 Login error:', loginErr);
+                    return res.redirect('/auth/failed');
+                }
+                console.log('✅ User logged in successfully via Passport');
+                const redirectUrl = `${getClientURL()}/auth/callback`;
+                console.log('Redirecting to:', redirectUrl);
+                res.redirect(redirectUrl);
+            });
+            return;
+        }
+
+        // Only try manual token exchange if Passport failed
         if (req.query.code) {
-            console.log('🔧 Found authorization code, attempting manual token exchange...');
+            console.log('🔧 Passport failed but found authorization code, attempting manual token exchange...');
             return handleManualTokenExchange(req, res);
         }
 
         // Temporarily bypass state verification error
         if (info && info.message && info.message.includes('Unable to verify authorization request state')) {
             console.log('⚠️ Bypassing state verification error for testing');
-            // Continue with manual token exchange
             return handleManualTokenExchange(req, res);
         }
 
@@ -561,28 +576,12 @@ app.get('/auth/whoop/callback', (req, res, next) => {
                     data: err.response.data
                 } : 'No response data'
             });
-            console.log('🔧 Error occurred, but trying manual token exchange anyway...');
+            console.log('🔧 Error occurred, trying manual token exchange...');
             return handleManualTokenExchange(req, res);
         }
 
-        if (!user) {
-            console.error('🚨 No user returned from Passport');
-            console.error('Info object:', info);
-            console.log('🔧 No user from Passport, trying manual token exchange...');
-            return handleManualTokenExchange(req, res);
-        }
-
-        // Manual login since we're using custom callback
-        req.logIn(user, (loginErr) => {
-            if (loginErr) {
-                console.error('🚨 Login error:', loginErr);
-                return res.redirect('/auth/failed');
-            }
-            console.log('✅ User logged in successfully');
-            const redirectUrl = `${getClientURL()}/auth/callback`;
-            console.log('Redirecting to:', redirectUrl);
-            res.redirect(redirectUrl);
-        });
+        console.error('🚨 No user returned from Passport and no fallback available');
+        res.redirect('/auth/failed');
     })(req, res, next);
 });
 
@@ -600,6 +599,53 @@ app.get('/auth/logout', (req, res) => {
     req.logout(() => {
         res.redirect(getClientURL());
     });
+});
+
+// Add endpoint to refresh sleep data
+app.get('/api/refresh-sleep-data', async (req, res) => {
+    try {
+        console.log('🔄 Refreshing sleep data...');
+
+        if (!req.isAuthenticated() || !req.user) {
+            return res.status(401).json({ error: 'Not authenticated' });
+        }
+
+        const accessToken = req.user.accessToken;
+        if (!accessToken) {
+            return res.status(400).json({ error: 'No access token available' });
+        }
+
+        // Fetch fresh sleep data from WHOOP
+        const freshSleepData = await fetchWhoopSleepData(accessToken);
+
+        // Update the user's profile with fresh data
+        req.user.profile.records = freshSleepData.records || [];
+        req.user.profile.lastRefresh = new Date().toISOString();
+
+        // Update the session
+        req.session.save((err) => {
+            if (err) {
+                console.error('Failed to save session:', err);
+            }
+        });
+
+        console.log('✅ Sleep data refreshed successfully');
+        console.log('Records found:', freshSleepData.records?.length || 0);
+
+        res.json({
+            success: true,
+            records: freshSleepData.records || [],
+            lastRefresh: req.user.profile.lastRefresh,
+            recordsCount: freshSleepData.records?.length || 0
+        });
+
+    } catch (error) {
+        console.error('🚨 Failed to refresh sleep data:', error);
+        res.status(500).json({
+            error: 'Failed to refresh sleep data',
+            message: error.message
+        });
+    }
 });
 
 // Error handling middleware

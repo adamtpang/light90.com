@@ -21,7 +21,7 @@ import {
     Button,
     useToast
 } from '@chakra-ui/react';
-import { FiCoffee, FiInfo, FiAlertTriangle, FiClock, FiZap, FiTrendingUp, FiBell, FiBellOff } from 'react-icons/fi';
+import { FiCoffee, FiInfo, FiAlertTriangle, FiClock, FiZap, FiTrendingUp, FiBell, FiBellOff, FiRefreshCw } from 'react-icons/fi';
 import useAuth from '../hooks/useAuth.tsx';
 
 // Define interfaces for your data structures
@@ -46,6 +46,7 @@ const Dashboard: React.FC = () => {
         typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'denied'
     );
     const [notificationScheduled, setNotificationScheduled] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
 
     const theme = useTheme();
     const toast = useToast();
@@ -114,6 +115,73 @@ const Dashboard: React.FC = () => {
             });
         }
     }, [toast]);
+
+    const refreshSleepData = useCallback(async () => {
+        if (refreshing) return; // Prevent multiple concurrent refreshes
+
+        setRefreshing(true);
+        try {
+            const backendUrl = process.env.REACT_APP_BACKEND_URL ||
+                (window.location.hostname !== 'localhost' ? 'https://light90-backend-production.up.railway.app' : 'http://localhost:5000');
+
+            console.log('🔄 Refreshing sleep data...');
+            const response = await fetch(`${backendUrl}/api/refresh-sleep-data`, {
+                credentials: 'include'
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to refresh sleep data: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('✅ Sleep data refreshed:', data);
+
+            // Update the dashboard data with fresh records
+            if (data.records && data.records.length > 0) {
+                const processedSleepCycles: SleepCycle[] = data.records.map((record: any) => ({
+                    id: String(record.id),
+                    start_time: String(record.start),
+                    end_time: String(record.end),
+                    timezone_offset: String(record.timezone_offset),
+                    score: Number(record.score?.sleep_performance_percentage)
+                }));
+
+                // Sort sleep cycles by end_time to get the latest one
+                processedSleepCycles.sort((a, b) => new Date(b.end_time).getTime() - new Date(a.end_time).getTime());
+
+                setDashboardData({
+                    sleepCycles: processedSleepCycles,
+                });
+
+                toast({
+                    title: "Sleep Data Refreshed!",
+                    description: `Found ${data.recordsCount} sleep records. Showing latest data.`,
+                    status: "success",
+                    duration: 3000,
+                    isClosable: true,
+                });
+            } else {
+                toast({
+                    title: "No New Sleep Data",
+                    description: "No sleep records found. Make sure your WHOOP is syncing.",
+                    status: "info",
+                    duration: 3000,
+                    isClosable: true,
+                });
+            }
+        } catch (error) {
+            console.error('❌ Failed to refresh sleep data:', error);
+            toast({
+                title: "Refresh Failed",
+                description: "Could not fetch fresh sleep data from WHOOP",
+                status: "error",
+                duration: 5000,
+                isClosable: true,
+            });
+        } finally {
+            setRefreshing(false);
+        }
+    }, [refreshing, toast]);
 
     const testNotification = useCallback(async (minutes: number) => {
         try {
@@ -206,6 +274,34 @@ const Dashboard: React.FC = () => {
             setLoadingData(false);
         }
     }, [user, authLoading]);
+
+    // Auto-refresh sleep data when dashboard loads
+    useEffect(() => {
+        if (user && user.profile && !refreshing) {
+            // Check if the latest sleep data is from today or yesterday
+            const rawProfile = user.profile as any;
+            const records = rawProfile.records || [];
+
+            if (records.length > 0) {
+                const latestRecord = records[0];
+                const latestSleepEnd = new Date(latestRecord.end);
+                const now = new Date();
+                const hoursSinceLastSleep = (now.getTime() - latestSleepEnd.getTime()) / (1000 * 60 * 60);
+
+                // If the latest sleep was more than 12 hours ago, try to refresh
+                if (hoursSinceLastSleep > 12) {
+                    console.log(`🔄 Latest sleep was ${hoursSinceLastSleep.toFixed(1)} hours ago, refreshing...`);
+                    refreshSleepData();
+                } else {
+                    console.log(`✅ Latest sleep was ${hoursSinceLastSleep.toFixed(1)} hours ago, no refresh needed`);
+                }
+            } else {
+                // No records, try to refresh
+                console.log('🔄 No sleep records found, refreshing...');
+                refreshSleepData();
+            }
+        }
+    }, [user, refreshing, refreshSleepData]);
 
     useEffect(() => {
         if (notificationPermission === 'granted' && dashboardData?.sleepCycles && dashboardData.sleepCycles.length > 0 && !notificationScheduled) {
@@ -306,9 +402,25 @@ const Dashboard: React.FC = () => {
         <Box bg={theme.colors.neutral[900]} minH="100vh" py={{ base: 8, md: 12 }} px={{ base: 4, md: 6 }}>
             <Container maxW="container.md">
                 <VStack spacing={6} align="stretch">
-                    <Heading as="h1" size="xl" color={primaryTextColor} textAlign="center" mb={2}>
-                        Your Optimal First Coffee
-                    </Heading>
+                    <Flex justify="space-between" align="center" mb={2}>
+                        <Heading as="h1" size="xl" color={primaryTextColor} textAlign="center" flex="1">
+                            Your Optimal First Coffee
+                        </Heading>
+                        <Button
+                            onClick={refreshSleepData}
+                            isLoading={refreshing}
+                            loadingText="Refreshing..."
+                            leftIcon={<Icon as={FiRefreshCw} />}
+                            variant="ghost"
+                            colorScheme="orange"
+                            size="sm"
+                            color={secondaryTextColor}
+                            _hover={{ color: primaryTextColor, bg: cardBackgroundColor }}
+                            title="Refresh sleep data from WHOOP"
+                        >
+                            Refresh
+                        </Button>
+                    </Flex>
 
                     {notificationPermission !== 'granted' && (
                         <Button
