@@ -437,9 +437,31 @@ const Dashboard: React.FC = () => {
     }, [user, refreshing, refreshSleepData, refreshBlocked]);
 
     return (
-        <div>
-            {/* Render your component content here */}
-        </div>
+        <Container maxW="container.lg" py={8} px={4}>
+            <VStack spacing={6} align="stretch">
+                <Text fontSize="2xl" fontWeight="bold" textAlign="center" color="white">
+                    Your Light90 Dashboard
+                </Text>
+
+                {refreshBlocked && (
+                    <Alert status="warning" borderRadius="md">
+                        <AlertIcon />
+                        <Box>
+                            <Text fontWeight="bold">Refresh Temporarily Blocked</Text>
+                            <Text fontSize="sm">Too many failed attempts. Use 'Reset Auth' in the menu to fix authentication issues.</Text>
+                        </Box>
+                    </Alert>
+                )}
+
+                <Text color="gray.300" textAlign="center">
+                    Dashboard content will be displayed here once authentication is working properly.
+                </Text>
+
+                <Text color="gray.400" fontSize="sm" textAlign="center">
+                    If you're seeing refresh errors, try using the "Reset Auth" button in the hamburger menu (☰).
+                </Text>
+            </VStack>
+        </Container>
     );
 };
 
