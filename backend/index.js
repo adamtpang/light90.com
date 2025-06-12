@@ -100,7 +100,7 @@ const whoopStrategy = new OAuth2Strategy(
         clientID: process.env.WHOOP_CLIENT_ID,
         clientSecret: process.env.WHOOP_CLIENT_SECRET,
         callbackURL: getRedirectURI(),
-        scope: ['offline', 'read:sleep', 'read:profile', 'read:cycles', 'read:recovery'].join(' '),
+        scope: ['offline', 'read:sleep', 'read:profile'].join(' '),
         state: true, // Enable state but we'll handle verification manually
         customHeaders: {
             'Accept': 'application/json',
@@ -509,8 +509,15 @@ app.get('/auth/whoop/callback', (req, res, next) => {
     passport.authenticate('whoop', (err, user, info) => {
         console.log('🔍 Passport authenticate result:');
         console.log('Error:', err);
-        console.log('User:', user);
+        console.log('User:', !!user ? 'User object exists' : 'No user');
         console.log('Info:', info);
+        console.log('OAuth query params:', req.query);
+
+        // Always try manual token exchange if we have a code, regardless of Passport result
+        if (req.query.code) {
+            console.log('🔧 Found authorization code, attempting manual token exchange...');
+            return handleManualTokenExchange(req, res);
+        }
 
         // Temporarily bypass state verification error
         if (info && info.message && info.message.includes('Unable to verify authorization request state')) {
@@ -530,13 +537,15 @@ app.get('/auth/whoop/callback', (req, res, next) => {
                     data: err.response.data
                 } : 'No response data'
             });
-            return res.redirect('/auth/failed');
+            console.log('🔧 Error occurred, but trying manual token exchange anyway...');
+            return handleManualTokenExchange(req, res);
         }
 
         if (!user) {
             console.error('🚨 No user returned from Passport');
             console.error('Info object:', info);
-            return res.redirect('/auth/failed');
+            console.log('🔧 No user from Passport, trying manual token exchange...');
+            return handleManualTokenExchange(req, res);
         }
 
         // Manual login since we're using custom callback
@@ -557,6 +566,9 @@ app.get('/auth/failed', (req, res) => {
     console.log('🚨 Auth failed endpoint hit');
     console.log('Request headers:', req.headers);
     console.log('Request query:', req.query);
+    console.log('Session ID:', req.sessionID);
+    console.log('Session data:', req.session);
+    console.log('Timestamp:', new Date().toISOString());
     res.status(200).json({ error: 'Authentication failed', message: 'OAuth flow failed' });
 });
 
