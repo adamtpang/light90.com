@@ -436,12 +436,113 @@ const Dashboard: React.FC = () => {
         }
     }, [user, refreshing, refreshSleepData, refreshBlocked]);
 
+    // Show loading state
+    if (loadingData) {
+        return (
+            <VStack minH="80vh" justify="center" align="center" spacing={4}>
+                <CircularProgress isIndeterminate color="brand.500" size="lg" />
+                <Text fontSize="xl" fontWeight="medium" color="neutral.700">
+                    Loading your sleep data...
+                </Text>
+            </VStack>
+        );
+    }
+
+    // Show error state
+    if (errorData) {
+        return (
+            <VStack minH="80vh" justify="center" align="center" spacing={4} p={5}>
+                <Alert status="error" maxW="md" borderRadius="md">
+                    <AlertIcon />
+                    <Box>
+                        <Text fontWeight="bold">Authentication Error</Text>
+                        <Text fontSize="sm" mt={1}>{errorData}</Text>
+                    </Box>
+                </Alert>
+                <Button
+                    colorScheme="brand"
+                    onClick={() => {
+                        console.log('🔄 Re-authenticating user...');
+                        window.location.href = `${process.env.REACT_APP_BACKEND_URL ||
+                            (window.location.hostname !== 'localhost' ? 'https://light90-backend-production.up.railway.app' : 'http://localhost:5000')}/auth/whoop`;
+                    }}
+                >
+                    Re-authenticate with WHOOP
+                </Button>
+            </VStack>
+        );
+    }
+
+    if (!dashboardData || !dashboardData.sleepCycles || dashboardData.sleepCycles.length === 0) {
+        return (
+            <Container maxW="container.lg" py={8} px={4}>
+                <VStack spacing={6} align="stretch">
+                    <Text fontSize="2xl" fontWeight="bold" textAlign="center" color="white">
+                        Your Light90 Dashboard
+                    </Text>
+
+                    {refreshBlocked && (
+                        <Alert status="warning" borderRadius="md">
+                            <AlertIcon />
+                            <Box>
+                                <Text fontWeight="bold">Refresh Temporarily Blocked</Text>
+                                <Text fontSize="sm">Too many failed attempts. Use 'Reset Auth' in the menu to fix authentication issues.</Text>
+                            </Box>
+                        </Alert>
+                    )}
+
+                    <Alert status="info" borderRadius="md">
+                        <AlertIcon />
+                        <Box>
+                            <Text fontWeight="bold">No Sleep Data Yet</Text>
+                            <Text fontSize="sm">We couldn't find any recent WHOOP sleep data. Please ensure your WHOOP device is syncing correctly.</Text>
+                        </Box>
+                    </Alert>
+
+                    <Button
+                        onClick={refreshSleepData}
+                        isLoading={refreshing}
+                        loadingText="Refreshing..."
+                        colorScheme="brand"
+                        size="lg"
+                        alignSelf="center"
+                    >
+                        Refresh Sleep Data
+                    </Button>
+                </VStack>
+            </Container>
+        );
+    }
+
+    const { sleepCycles } = dashboardData;
+    const latestSleep = sleepCycles[0];
+    const wakeUpTime = new Date(latestSleep.end_time);
+    const caffeineTargetTime = new Date(wakeUpTime.getTime() + 90 * 60 * 1000);
+
+    const formattedWakeUpTime = wakeUpTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const formattedWakeUpDate = wakeUpTime.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    const formattedCaffeineTargetTime = caffeineTargetTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const formattedCaffeineTargetDate = caffeineTargetTime.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+
     return (
         <Container maxW="container.lg" py={8} px={4}>
             <VStack spacing={6} align="stretch">
-                <Text fontSize="2xl" fontWeight="bold" textAlign="center" color="white">
-                    Your Light90 Dashboard
-                </Text>
+                <HStack justify="space-between" align="center">
+                    <Text fontSize="2xl" fontWeight="bold" color="white">
+                        Your Optimal First Coffee
+                    </Text>
+                    <Button
+                        onClick={refreshSleepData}
+                        isLoading={refreshing}
+                        loadingText="Refreshing..."
+                        variant="ghost"
+                        colorScheme="orange"
+                        size="sm"
+                        title="Refresh sleep data from WHOOP"
+                    >
+                        Refresh
+                    </Button>
+                </HStack>
 
                 {refreshBlocked && (
                     <Alert status="warning" borderRadius="md">
@@ -453,12 +554,39 @@ const Dashboard: React.FC = () => {
                     </Alert>
                 )}
 
-                <Text color="gray.300" textAlign="center">
-                    Dashboard content will be displayed here once authentication is working properly.
-                </Text>
+                <Box bg="gray.800" borderRadius="xl" p={8} textAlign="center">
+                    <VStack spacing={4}>
+                        <Text fontSize="6xl">☕</Text>
+                        <Text fontSize="lg" color="gray.300">Target Time</Text>
+                        <Text fontSize="4xl" fontWeight="bold" color="orange.400">
+                            {formattedCaffeineTargetTime}
+                        </Text>
+                        <Text color="gray.400">on {formattedCaffeineTargetDate}</Text>
+                        <Text fontSize="sm" color="gray.500" maxW="md">
+                            Aim to have your first coffee or tea around this time to maximize energy and minimize sleep disruption.
+                        </Text>
+                    </VStack>
+                </Box>
 
-                <Text color="gray.400" fontSize="sm" textAlign="center">
-                    If you're seeing refresh errors, try using the "Reset Auth" button in the hamburger menu (☰).
+                <HStack spacing={4}>
+                    <Box bg="gray.800" borderRadius="lg" p={4} flex={1}>
+                        <VStack spacing={2}>
+                            <Text fontSize="sm" color="gray.400">Last Wake-up</Text>
+                            <Text fontSize="xl" fontWeight="bold" color="white">{formattedWakeUpTime}</Text>
+                            <Text fontSize="xs" color="gray.500">{formattedWakeUpDate}</Text>
+                        </VStack>
+                    </Box>
+                    <Box bg="gray.800" borderRadius="lg" p={4} flex={1}>
+                        <VStack spacing={2}>
+                            <Text fontSize="sm" color="gray.400">WHOOP Sleep Score</Text>
+                            <Text fontSize="xl" fontWeight="bold" color="white">{latestSleep.score || 'N/A'}</Text>
+                            <Text fontSize="xs" color="gray.500">From last sleep cycle</Text>
+                        </VStack>
+                    </Box>
+                </HStack>
+
+                <Text fontSize="sm" color="gray.500" textAlign="center">
+                    💡 Waiting at least 90 minutes after waking to consume caffeine can help prevent an afternoon crash and optimize your natural cortisol rhythm.
                 </Text>
             </VStack>
         </Container>
