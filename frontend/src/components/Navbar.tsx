@@ -242,6 +242,50 @@ export default function Navbar() {
                     <NavLink to="/">Home</NavLink>
                     {user && <NavLink to="/dashboard">Dashboard</NavLink>}
                     <NavLink to="/about">About</NavLink>
+                    {user && (
+                        <>
+                            <Box borderTop="1px" borderColor={mobileNavBorderColor} pt={2} mt={2}>
+                                <Button
+                                    onClick={() => {
+                                        console.log('🔄 Clearing cache and re-authenticating...');
+                                        // Clear all localStorage data
+                                        try {
+                                            localStorage.removeItem('light90_temp_user');
+                                            localStorage.removeItem('light90_temp_auth');
+                                            localStorage.removeItem('light90_jwt_token');
+                                            console.log('✅ localStorage cleared');
+                                        } catch (e) {
+                                            console.warn('Could not clear localStorage:', e);
+                                        }
+                                        // Redirect to OAuth
+                                        const backendUrl = process.env.REACT_APP_BACKEND_URL ||
+                                            (window.location.hostname !== 'localhost' ? 'https://light90-backend-production.up.railway.app' : 'http://localhost:5000');
+                                        window.location.href = `${backendUrl}/auth/whoop`;
+                                    }}
+                                    variant="ghost"
+                                    colorScheme="orange"
+                                    size="sm"
+                                    w="full"
+                                    justifyContent="flex-start"
+                                    fontFamily={"Roboto, sans-serif"}
+                                >
+                                    Reset Auth
+                                </Button>
+                                <Button
+                                    onClick={logout}
+                                    variant="ghost"
+                                    colorScheme="red"
+                                    size="sm"
+                                    w="full"
+                                    justifyContent="flex-start"
+                                    fontFamily={"Roboto, sans-serif"}
+                                    mt={1}
+                                >
+                                    Sign Out
+                                </Button>
+                            </Box>
+                        </>
+                    )}
                 </Stack>
             </Collapse>
         </Box>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
     Box,
     Container,
@@ -56,6 +56,9 @@ const Dashboard: React.FC = () => {
 
     const theme = useTheme();
     const toast = useToast();
+
+    // Track active toasts to prevent spam
+    const activeToastRef = useRef<string | null>(null);
 
     const primaryTextColor = theme.colors.white;
     const secondaryTextColor = theme.colors.neutral[300];
@@ -195,6 +198,10 @@ const Dashboard: React.FC = () => {
                     sleepCycles: processedSleepCycles,
                 });
 
+                // Close any existing toasts and show success
+                toast.closeAll();
+                activeToastRef.current = null;
+
                 toast({
                     title: "Sleep Data Refreshed!",
                     description: `Found ${data.recordsCount} sleep records. Showing latest data.`,
@@ -203,6 +210,10 @@ const Dashboard: React.FC = () => {
                     isClosable: true,
                 });
             } else {
+                // Close any existing toasts and show info
+                toast.closeAll();
+                activeToastRef.current = null;
+
                 toast({
                     title: "No New Sleep Data",
                     description: "No sleep records found. Make sure your WHOOP is syncing.",
@@ -213,13 +224,25 @@ const Dashboard: React.FC = () => {
             }
         } catch (error) {
             console.error('❌ Failed to refresh sleep data:', error);
-            toast({
-                title: "Refresh Failed",
-                description: "Could not fetch fresh sleep data from WHOOP",
-                status: "error",
-                duration: 5000,
-                isClosable: true,
-            });
+
+            // Only show error toast if one isn't already active
+            if (activeToastRef.current !== 'refresh-error') {
+                // Close any existing toasts first
+                toast.closeAll();
+
+                const toastId = toast({
+                    title: "Refresh Failed",
+                    description: "Could not fetch fresh sleep data from WHOOP. Try the Reset Auth button if this persists.",
+                    status: "error",
+                    duration: 8000,
+                    isClosable: true,
+                    onCloseComplete: () => {
+                        activeToastRef.current = null;
+                    }
+                });
+
+                activeToastRef.current = 'refresh-error';
+            }
         } finally {
             setRefreshing(false);
         }
@@ -279,13 +302,23 @@ const Dashboard: React.FC = () => {
                 });
             }
         } catch (error) {
-            toast({
-                title: "Test Failed",
-                description: "Could not run notification test",
-                status: "error",
-                duration: 3000,
-                isClosable: true,
-            });
+            // Only show error toast if one isn't already active
+            if (activeToastRef.current !== 'test-error') {
+                toast.closeAll();
+
+                const toastId = toast({
+                    title: "Test Failed",
+                    description: "Could not run notification test",
+                    status: "error",
+                    duration: 3000,
+                    isClosable: true,
+                    onCloseComplete: () => {
+                        activeToastRef.current = null;
+                    }
+                });
+
+                activeToastRef.current = 'test-error';
+            }
         }
     }, [notificationPermission, toast]);
 
