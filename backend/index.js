@@ -485,6 +485,8 @@ app.get('/auth/whoop', (req, res, next) => {
     console.log('Session ID:', req.sessionID);
     console.log('Session data:', req.session);
     console.log('Cookies:', req.headers.cookie);
+    console.log('Computed redirect URI:', getRedirectURI());
+    console.log('Request headers:', req.headers);
     passport.authenticate('whoop')(req, res, next);
 });
 

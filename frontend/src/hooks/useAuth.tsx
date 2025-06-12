@@ -134,7 +134,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     const login = () => {
         // Redirect to WHOOP OAuth URL
-        window.location.href = `${backendUrl}/auth/whoop`;
+        const oauthUrl = `${backendUrl}/auth/whoop`;
+        console.log('🔍 useAuth: Redirecting to OAuth URL:', oauthUrl);
+        window.location.href = oauthUrl;
     };
 
     const logout = useCallback(async () => {
