@@ -162,6 +162,21 @@ async function fetchWhoopSleepData(accessToken) {
 
         console.log('📅 Date range:', { startDate, endDate });
 
+        // First, test if the access token works with a simple API call
+        try {
+            console.log('🧪 Testing access token with user profile...');
+            const profileTest = await axios.get('https://api.prod.whoop.com/developer/v1/user/profile/basic', {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Accept': 'application/json'
+                }
+            });
+            console.log('✅ Access token works! User profile:', profileTest.data);
+        } catch (profileError) {
+            console.error('❌ Access token test failed:', profileError.response?.status, profileError.response?.data);
+            console.error('This means the access token is invalid or expired');
+        }
+
         // Use correct WHOOP API endpoints from official documentation
         const endpoints = [
             'https://api.prod.whoop.com/developer/v1/sleep',        // Primary sleep endpoint
@@ -189,6 +204,7 @@ async function fetchWhoopSleepData(accessToken) {
                     });
                 } catch (dateError) {
                     console.log(`  ❌ With date params failed: ${dateError.response?.status}`);
+                    console.log(`  Error details:`, dateError.response?.data);
                     // Try without date parameters
                     console.log(`  🔍 Trying ${endpoint} without date params...`);
                     response = await axios.get(endpoint, {
@@ -256,9 +272,13 @@ async function handleManualTokenExchange(req, res) {
             }
         });
 
-        console.log('✅ Manual token exchange successful!', tokenResponse.data);
+        console.log('✅ Manual token exchange successful!');
+        console.log('Access token received:', tokenResponse.data.access_token ? `YES (${tokenResponse.data.access_token.substring(0, 10)}...)` : 'NO');
+        console.log('Token type:', tokenResponse.data.token_type);
+        console.log('Scope:', tokenResponse.data.scope);
 
         // Fetch WHOOP sleep data
+        console.log('🔍 About to fetch WHOOP sleep data...');
         const sleepData = await fetchWhoopSleepData(tokenResponse.data.access_token);
 
         // Create user object with real sleep data
