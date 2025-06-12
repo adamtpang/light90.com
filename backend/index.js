@@ -682,6 +682,48 @@ app.get('/api/refresh-sleep-data', authenticateRequest, async (req, res) => {
     }
 });
 
+// Endpoint to generate JWT token for authenticated users
+app.get('/auth/generate-token', (req, res) => {
+    try {
+        console.log('🔍 Generating JWT token for authenticated user...');
+
+        if (!req.isAuthenticated() || !req.user) {
+            return res.status(401).json({ error: 'Not authenticated' });
+        }
+
+        console.log('✅ User is authenticated, generating JWT token');
+        console.log('User ID:', req.user.id);
+        console.log('Has access token:', !!req.user.accessToken);
+
+        // Create JWT token for the authenticated user
+        const token = jwt.sign(
+            {
+                userId: req.user.id,
+                accessToken: req.user.accessToken,
+                profile: req.user.profile,
+                timestamp: Date.now()
+            },
+            process.env.SESSION_SECRET || 'dev-secret',
+            { expiresIn: '24h' } // Longer expiry for API usage
+        );
+
+        console.log('✅ JWT token generated successfully');
+
+        res.json({
+            success: true,
+            token: token,
+            user: req.user
+        });
+
+    } catch (error) {
+        console.error('🚨 Failed to generate JWT token:', error);
+        res.status(500).json({
+            error: 'Failed to generate token',
+            message: error.message
+        });
+    }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
     console.error('Error:', err);

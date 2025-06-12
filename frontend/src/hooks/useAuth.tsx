@@ -128,13 +128,32 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             if (response.data.authenticated && response.data.user) {
                 console.log('✅ useAuth: User authenticated, setting user state');
                 setUser(response.data.user);
-                // Clear temporary data if session is working
+
+                // Check if we have a JWT token, if not, generate one for API calls
                 try {
+                    const existingToken = localStorage.getItem('light90_jwt_token');
+                    if (!existingToken) {
+                        console.log('🔍 useAuth: No JWT token found, generating one for API calls...');
+
+                        // Request a JWT token for this authenticated user
+                        const tokenResponse = await axios.get(`${backendUrl}/auth/generate-token`, {
+                            withCredentials: true,
+                            timeout: 5000
+                        });
+
+                        if (tokenResponse.data.success && tokenResponse.data.token) {
+                            localStorage.setItem('light90_jwt_token', tokenResponse.data.token);
+                            console.log('✅ useAuth: JWT token generated and stored for API calls');
+                        }
+                    } else {
+                        console.log('✅ useAuth: JWT token already exists');
+                    }
+
+                    // Clean up old temporary data but keep JWT token
                     localStorage.removeItem('light90_temp_user');
                     localStorage.removeItem('light90_temp_auth');
-                    localStorage.removeItem('light90_jwt_token');
                 } catch (storageError) {
-                    console.warn('⚠️ useAuth: localStorage cleanup failed (mobile browser?):', storageError);
+                    console.warn('⚠️ useAuth: Token generation or localStorage failed:', storageError);
                 }
             } else {
                 console.log('❌ useAuth: User not authenticated via session, checking temporary data...');
