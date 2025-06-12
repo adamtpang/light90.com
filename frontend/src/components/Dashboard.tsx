@@ -48,17 +48,20 @@ const Dashboard: React.FC = () => {
     const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
     const [loadingData, setLoadingData] = useState(true);
     const [errorData, setErrorData] = useState<string | null>(null);
-    const [notificationPermission, setNotificationPermission] = useState(
-        typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'denied'
-    );
+    const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
     const [notificationScheduled, setNotificationScheduled] = useState(false);
-    const [refreshing, setRefreshing] = useState(false);
+    const [refreshing, setRefreshing] = useState<boolean>(false);
 
     const theme = useTheme();
     const toast = useToast();
 
     // Track active toasts to prevent spam
     const activeToastRef = useRef<string | null>(null);
+
+    // Circuit breaker for refresh attempts
+    const refreshAttemptsRef = useRef<number>(0);
+    const lastRefreshAttemptRef = useRef<number>(0);
+    const [refreshBlocked, setRefreshBlocked] = useState<boolean>(false);
 
     const primaryTextColor = theme.colors.white;
     const secondaryTextColor = theme.colors.neutral[300];
@@ -127,6 +130,41 @@ const Dashboard: React.FC = () => {
 
     const refreshSleepData = useCallback(async () => {
         if (refreshing) return; // Prevent multiple concurrent refreshes
+
+        // Circuit breaker: prevent too many refresh attempts
+        const now = Date.now();
+        const timeSinceLastAttempt = now - lastRefreshAttemptRef.current;
+
+        // Reset counter if it's been more than 5 minutes since last attempt
+        if (timeSinceLastAttempt > 5 * 60 * 1000) {
+            refreshAttemptsRef.current = 0;
+            setRefreshBlocked(false);
+        }
+
+        // Block if too many attempts in short time
+        if (refreshAttemptsRef.current >= 3 && timeSinceLastAttempt < 2 * 60 * 1000) {
+            console.log('🚫 Refresh blocked due to too many attempts');
+            setRefreshBlocked(true);
+
+            if (activeToastRef.current !== 'refresh-blocked') {
+                toast.closeAll();
+                toast({
+                    title: "Refresh Temporarily Blocked",
+                    description: "Too many failed attempts. Use 'Reset Auth' in the menu to fix authentication issues.",
+                    status: "warning",
+                    duration: 10000,
+                    isClosable: true,
+                    onCloseComplete: () => {
+                        activeToastRef.current = null;
+                    }
+                });
+                activeToastRef.current = 'refresh-blocked';
+            }
+            return;
+        }
+
+        refreshAttemptsRef.current++;
+        lastRefreshAttemptRef.current = now;
 
         setRefreshing(true);
         try {
@@ -370,7 +408,7 @@ const Dashboard: React.FC = () => {
 
     // Auto-refresh sleep data when dashboard loads
     useEffect(() => {
-        if (user && user.profile && !refreshing) {
+        if (user && user.profile && !refreshing && !refreshBlocked) {
             // Check if the latest sleep data is from today or yesterday
             const rawProfile = user.profile as any;
             const records = rawProfile.records || [];
@@ -381,6 +419,28 @@ const Dashboard: React.FC = () => {
                 const now = new Date();
                 const hoursSinceLastSleep = (now.getTime() - latestSleepEnd.getTime()) / (1000 * 60 * 60);
 
-                // If the latest sleep was more than 12 hours ago, try to refresh
-                if (hoursSinceLastSleep > 12) {
-                    console.log(`
+                // If the latest sleep was more than 12 hours ago, try to refresh (but only once)
+                if (hoursSinceLastSleep > 12 && refreshAttemptsRef.current === 0) {
+                    console.log(`🔄 Latest sleep was ${hoursSinceLastSleep.toFixed(1)} hours ago, refreshing...`);
+                    refreshSleepData();
+                } else {
+                    console.log(`✅ Latest sleep was ${hoursSinceLastSleep.toFixed(1)} hours ago, no refresh needed`);
+                }
+            } else {
+                // No records, try to refresh (but only once)
+                if (refreshAttemptsRef.current === 0) {
+                    console.log('🔄 No sleep records found, refreshing...');
+                    refreshSleepData();
+                }
+            }
+        }
+    }, [user, refreshing, refreshSleepData, refreshBlocked]);
+
+    return (
+        <div>
+            {/* Render your component content here */}
+        </div>
+    );
+};
+
+export default Dashboard;

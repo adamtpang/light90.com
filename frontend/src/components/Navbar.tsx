@@ -203,19 +203,38 @@ export default function Navbar() {
                                 <MenuDivider borderColor={menuDividerBorderColor} my={1} />
                                 <MenuItem fontSize="sm" onClick={() => {
                                     console.log('🔄 Clearing cache and re-authenticating...');
-                                    // Clear all localStorage data
+
+                                    // More aggressive cleanup for mobile
                                     try {
+                                        // Clear localStorage
                                         localStorage.removeItem('light90_temp_user');
                                         localStorage.removeItem('light90_temp_auth');
                                         localStorage.removeItem('light90_jwt_token');
-                                        console.log('✅ localStorage cleared');
+
+                                        // Also clear sessionStorage
+                                        sessionStorage.clear();
+
+                                        // Clear all localStorage items that might be related
+                                        const keysToRemove = [];
+                                        for (let i = 0; i < localStorage.length; i++) {
+                                            const key = localStorage.key(i);
+                                            if (key && key.includes('light90')) {
+                                                keysToRemove.push(key);
+                                            }
+                                        }
+                                        keysToRemove.forEach(key => localStorage.removeItem(key));
+
+                                        console.log('✅ All storage cleared');
                                     } catch (e) {
-                                        console.warn('Could not clear localStorage:', e);
+                                        console.warn('Could not clear storage:', e);
                                     }
-                                    // Redirect to OAuth
+
+                                    // Force a hard reload to clear React state, then redirect
                                     const backendUrl = process.env.REACT_APP_BACKEND_URL ||
                                         (window.location.hostname !== 'localhost' ? 'https://light90-backend-production.up.railway.app' : 'http://localhost:5000');
-                                    window.location.href = `${backendUrl}/auth/whoop`;
+
+                                    // Use window.location.replace for a hard navigation that clears everything
+                                    window.location.replace(`${backendUrl}/auth/whoop`);
                                 }} color={logoutItemColor} _hover={{ bg: logoutItemHoverBg }} py={1}>
                                     Reset Auth
                                 </MenuItem>
@@ -248,19 +267,38 @@ export default function Navbar() {
                                 <Button
                                     onClick={() => {
                                         console.log('🔄 Clearing cache and re-authenticating...');
-                                        // Clear all localStorage data
+
+                                        // More aggressive cleanup for mobile
                                         try {
+                                            // Clear localStorage
                                             localStorage.removeItem('light90_temp_user');
                                             localStorage.removeItem('light90_temp_auth');
                                             localStorage.removeItem('light90_jwt_token');
-                                            console.log('✅ localStorage cleared');
+
+                                            // Also clear sessionStorage
+                                            sessionStorage.clear();
+
+                                            // Clear all localStorage items that might be related
+                                            const keysToRemove = [];
+                                            for (let i = 0; i < localStorage.length; i++) {
+                                                const key = localStorage.key(i);
+                                                if (key && key.includes('light90')) {
+                                                    keysToRemove.push(key);
+                                                }
+                                            }
+                                            keysToRemove.forEach(key => localStorage.removeItem(key));
+
+                                            console.log('✅ All storage cleared');
                                         } catch (e) {
-                                            console.warn('Could not clear localStorage:', e);
+                                            console.warn('Could not clear storage:', e);
                                         }
-                                        // Redirect to OAuth
+
+                                        // Force a hard reload to clear React state, then redirect
                                         const backendUrl = process.env.REACT_APP_BACKEND_URL ||
                                             (window.location.hostname !== 'localhost' ? 'https://light90-backend-production.up.railway.app' : 'http://localhost:5000');
-                                        window.location.href = `${backendUrl}/auth/whoop`;
+
+                                        // Use window.location.replace for a hard navigation that clears everything
+                                        window.location.replace(`${backendUrl}/auth/whoop`);
                                     }}
                                     variant="ghost"
                                     colorScheme="orange"
